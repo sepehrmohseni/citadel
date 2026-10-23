@@ -39,6 +39,15 @@ jobs:
             echo "::error::tag $TAG does not match version $version in app/src-tauri/tauri.conf.json"
             exit 1
           fi
+      - name: Release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          sed "s/@VERSION@/${TAG#v}/g" .github/release-notes.md > "$notes"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body >> "$notes"
+          echo "NOTES_FILE=$notes" >> "$GITHUB_ENV"
       - name: Create or reuse draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -48,6 +57,7 @@ jobs:
           case "$state" in
             true)
               echo "reusing existing draft release $TAG"
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$NOTES_FILE"
               ;;
             false)
               echo "::error::release $TAG is already published; refusing to replace its assets"
@@ -55,7 +65,7 @@ jobs:
               ;;
             *)
               gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
-                --title "Citadel $TAG" --generate-notes --verify-tag
+                --title "Citadel $TAG" --notes-file "$NOTES_FILE" --verify-tag
               ;;
           esac
 
@@ -163,7 +173,12 @@ jobs:
           java-version: 21
       - name: Android NDK
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
+            (yes || true) | "$sdkmanager" --licenses > /dev/null
+            "$sdkmanager" --install "ndk;$NDK_VERSION"
+          fi
+          test -d "$ANDROID_HOME/ndk/$NDK_VERSION"
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -189,7 +204,7 @@ jobs:
           } > app/src-tauri/gen/android/keystore.properties
       - name: Build APK
         working-directory: app
-        run: pnpm tauri android build --apk --target aarch64 --target armv7 --target x86_64 -- --locked
+        run: pnpm tauri android build --apk --target aarch64 armv7 x86_64 -- --locked
       - name: Collect APK
         run: |
           version="$(node -p "require('./app/src-tauri/tauri.conf.json').version")"
