@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use russh::ChannelOpenFailure;
@@ -7,7 +8,7 @@ use russh::keys::{PublicKey, PublicKeyOrCertificate};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
-use crate::agent::ForwardAgent;
+use crate::agent::ForwardSlot;
 use crate::meter::{Meter, Metered};
 use crate::{TransportError, auth};
 
@@ -53,10 +54,26 @@ pub(crate) struct Client {
     pub port: u16,
     pub verifier: Arc<dyn crate::HostKeyVerifier>,
     pub routes: Arc<RemoteRoutes>,
-    pub agent: Option<Arc<ForwardAgent>>,
+    pub agent: Option<Arc<ForwardSlot>>,
     pub closed: Arc<watch::Sender<Option<String>>>,
     pub host_key: Arc<OnceLock<PublicKey>>,
     pub banner: Option<Banner>,
+    pub waiting: Arc<AtomicUsize>,
+}
+
+struct Waiting<'a>(&'a AtomicUsize);
+
+impl<'a> Waiting<'a> {
+    fn new(n: &'a AtomicUsize) -> Self {
+        n.fetch_add(1, Ordering::SeqCst);
+        Self(n)
+    }
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl Handler for Client {
@@ -81,7 +98,10 @@ impl Handler for Client {
             PublicKeyOrCertificate::PublicKey { key, .. } => key.clone(),
             PublicKeyOrCertificate::Certificate(cert) => PublicKey::from(cert.public_key().clone()),
         };
-        let ok = self.verifier.verify(&self.host, self.port, &key).await?;
+        let ok = {
+            let _waiting = Waiting::new(&self.waiting);
+            self.verifier.verify(&self.host, self.port, &key).await?
+        };
         if ok {
             let _ = self.host_key.set(key);
         } else {

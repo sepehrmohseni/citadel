@@ -13,6 +13,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::{Result, Session, TransportError};
 
 const CHUNK: u32 = 32 * 1024;
+const MAX_ENTRIES: usize = 200_000;
 const DEPTH: usize = 64;
 const POSIX_RENAME: &str = "posix-rename@openssh.com";
 const FSYNC: &str = "fsync@openssh.com";
@@ -143,6 +144,12 @@ impl Sftp {
                         if f.filename == "." || f.filename == ".." {
                             continue;
                         }
+                        if out.len() >= MAX_ENTRIES {
+                            let _ = self.raw.close(handle.clone()).await;
+                            return Err(TransportError::Io(std::io::Error::other(format!(
+                                "directory lists more than {MAX_ENTRIES} entries"
+                            ))));
+                        }
                         let st = stat_of(&f.attrs);
                         out.push(DirEntry {
                             name: f.filename,
@@ -269,6 +276,9 @@ impl Sftp {
                 done,
                 total: total.max(done),
             });
+            if short {
+                break;
+            }
         }
         drop(spans);
         if !short {

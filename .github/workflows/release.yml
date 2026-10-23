@@ -1,50 +1,91 @@
 name: Release
 
+# Tag push (v*): builds every installer into a draft GitHub release and
+# attaches SHA256SUMS. Publish the draft by hand after checking it.
+# Manual run (workflow_dispatch): same build matrix, results are uploaded as
+# workflow artifacts only; no release is created or touched.
+
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
   draft:
+    name: draft release
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    outputs:
-      release_id: ${{ steps.create.outputs.release_id }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - id: create
+      - name: Tag matches app version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(jq -r .version app/src-tauri/tauri.conf.json)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match version $version in app/src-tauri/tauri.conf.json"
+            exit 1
+          fi
+      - name: Create or reuse draft release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
-            --title "Citadel $TAG" --generate-notes --verify-tag
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)
-          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+          state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)
+          case "$state" in
+            true)
+              echo "reusing existing draft release $TAG"
+              ;;
+            false)
+              echo "::error::release $TAG is already published; refusing to replace its assets"
+              exit 1
+              ;;
+            *)
+              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+                --title "Citadel $TAG" --generate-notes --verify-tag
+              ;;
+          esac
 
   bundle:
+    name: bundle (${{ matrix.name }})
     needs: draft
+    if: ${{ !cancelled() && (needs.draft.result == 'success' || needs.draft.result == 'skipped') }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
-            args: --bundles appimage,deb
-          - os: windows-latest
-            args: --bundles msi
-          - os: macos-latest
+          - name: linux-x64
+            os: ubuntu-22.04
+            args: --bundles deb,rpm,appimage
+          - name: windows-x64
+            os: windows-latest
+            args: --bundles nsis,msi
+          - name: macos-universal
+            os: macos-latest
             args: --target universal-apple-darwin --bundles dmg
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: System packages
-        if: startsWith(matrix.os, 'ubuntu')
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev \
@@ -55,37 +96,76 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.name }}
       - name: Install frontend dependencies
         working-directory: app
-        run: |
-          if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
-        shell: bash
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm install --frozen-lockfile
+      - name: Build installers
+        working-directory: app
+        run: pnpm tauri build ${{ matrix.args }} -- --locked
+      - name: Collect installers
+        run: scripts/collect-bundles.sh dist
+      - uses: actions/upload-artifact@v4
         with:
-          projectPath: app
-          tauriScript: pnpm tauri
-          releaseId: ${{ needs.draft.outputs.release_id }}
-          args: ${{ matrix.args }}
-
-  checksums:
-    needs: [draft, bundle]
-    runs-on: ubuntu-24.04
-    steps:
-      - env:
+          name: bundle-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Attach to draft release
+        if: github.event_name == 'push'
+        env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  checksums:
+    name: checksums
+    needs: bundle
+    if: ${{ !cancelled() && needs.bundle.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch release assets
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
+      - name: Fetch workflow artifacts
+        if: github.event_name != 'push'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: assets
+          merge-multiple: true
+      - name: Compute SHA256SUMS
+        working-directory: assets
         run: |
-          mkdir assets
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
-          cd assets
           rm -f SHA256SUMS
           sha256sum -- * > ../SHA256SUMS
-          cd ..
+          mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS
-          gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Attach SHA256SUMS to draft release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" assets/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Upload combined artifact
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: citadel-dist
+          path: assets/
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true

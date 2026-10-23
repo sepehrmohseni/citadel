@@ -17,7 +17,6 @@
     "@fontsource-variable/vazirmatn": "5.2.8",
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-clipboard-manager": "2.4.1",
-    "@tauri-apps/plugin-dialog": "2.8.3",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-search": "0.16.0",
     "@xterm/addon-unicode11": "0.9.0",

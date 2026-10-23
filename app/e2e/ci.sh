@@ -36,4 +36,5 @@ export CITADEL_E2E_SSH_PORT="$port"
 export CITADEL_E2E_OUT="${CITADEL_E2E_OUT:-$root/app/e2e-artifacts}"
 cd "$root/app"
 xvfb-run -a -s "-screen 0 1440x900x24" node e2e/run.mjs
-exec xvfb-run -a -s "-screen 0 1440x900x24" node e2e/intl.mjs
+xvfb-run -a -s "-screen 0 1440x900x24" node e2e/intl.mjs
+exec xvfb-run -a -s "-screen 0 1440x900x24" node e2e/features.mjs

@@ -111,15 +111,15 @@ try {
   });
 
   await step("open live telemetry", async () => {
-    await app.click('.term-bar button[title="Host telemetry"]');
+    await app.click('.term-bar button[title^="Host telemetry"]');
     await app.waitFor("!!document.querySelector('.telemetry .tm-head .host')", 20000, "telemetry sample");
     await pause(2600);
     await shot("08-telemetry");
-    await app.click('.term-bar button[title="Host telemetry"]');
+    await app.click('.term-bar button[title^="Host telemetry"]');
   });
 
   await step("browse files over sftp", async () => {
-    await app.click('.term-bar button[title="Open files"]');
+    await app.click('.term-bar button[title^="Open files"]');
     await app.waitFor("document.querySelectorAll('.files-pane [role=row], .files-pane .fp-row').length > 1 || document.querySelector('.files-pane')?.innerText.includes('.ssh') === true", 20000, "directory listing");
     await pause(300);
     await shot("09-files");

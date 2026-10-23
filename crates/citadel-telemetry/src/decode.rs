@@ -4,6 +4,8 @@ use crate::script::MARK;
 
 const MAX_PENDING: usize = 1 << 20;
 const MAX_SECTION_LINES: usize = 16_384;
+const MAX_SECTIONS: usize = 32;
+const MAX_FRAME_BYTES: usize = 8 << 20;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RawFrame {
@@ -30,6 +32,7 @@ pub(crate) struct Decoder {
     pending: Vec<u8>,
     cur: Option<RawFrame>,
     section: Option<String>,
+    frame_bytes: usize,
 }
 
 impl Decoder {
@@ -56,7 +59,10 @@ impl Decoder {
         let Some(rest) = line.strip_prefix(MARK) else {
             if let (Some(frame), Some(name)) = (self.cur.as_mut(), self.section.as_ref()) {
                 let lines = frame.sections.entry(name.clone()).or_default();
-                if lines.len() < MAX_SECTION_LINES {
+                if lines.len() < MAX_SECTION_LINES
+                    && self.frame_bytes + line.len() <= MAX_FRAME_BYTES
+                {
+                    self.frame_bytes += line.len();
                     lines.push(line.to_owned());
                 }
             }
@@ -70,6 +76,7 @@ impl Decoder {
                     ..RawFrame::default()
                 });
                 self.section = None;
+                self.frame_bytes = 0;
                 None
             }
             "end" => {
@@ -78,6 +85,10 @@ impl Decoder {
             }
             _ => {
                 let frame = self.cur.as_mut()?;
+                if frame.sections.len() >= MAX_SECTIONS && !frame.sections.contains_key(name) {
+                    self.section = None;
+                    return None;
+                }
                 if name == "docker" {
                     frame.docker_mode = Some(arg.to_owned());
                 }

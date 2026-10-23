@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200">
+<meta name="robots" content="noindex">
+<title>Citadel social card</title>
+<style>
+@font-face {
+  font-family: "JetBrains Mono W";
+  src: url(assets/jetbrains-mono.woff2) format("woff2");
+  font-weight: 100 800;
+}
+
+:root {
+  --bg: #0b0b0c;
+  --bg-1: #0f0f10;
+  --line: #222225;
+  --line-2: #303034;
+  --fg: #eeeae1;
+  --fg-1: #cdc8bd;
+  --fg-2: #9c978d;
+  --fg-3: #6e6a62;
+  --accent: #ffb000;
+  --ink: #160f00;
+  --ok: #8fd468;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 1200px;
+  height: 630px;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "JetBrains Mono W", monospace;
+  font-feature-settings: "calt" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  position: relative;
+  background-image: linear-gradient(rgba(255, 176, 0, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 176, 0, 0.045) 1px, transparent 1px);
+  background-size: 30px 30px;
+  background-position: -1px -1px;
+}
+
+.card {
+  position: absolute;
+  inset: 44px 48px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  background: rgba(15, 15, 16, 0.94);
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  --t: var(--accent);
+  background-image: linear-gradient(var(--t), var(--t)), linear-gradient(var(--t), var(--t)),
+    linear-gradient(var(--t), var(--t)), linear-gradient(var(--t), var(--t)),
+    linear-gradient(var(--t), var(--t)), linear-gradient(var(--t), var(--t)),
+    linear-gradient(var(--t), var(--t)), linear-gradient(var(--t), var(--t));
+  background-repeat: no-repeat;
+  background-size: 22px 3px, 3px 22px, 22px 3px, 3px 22px, 22px 3px, 3px 22px, 22px 3px, 3px 22px;
+  background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 64px 8px;
+}
+
+.crenel {
+  display: block;
+  width: 750px;
+  height: 10px;
+  margin-bottom: 22px;
+  fill: var(--accent);
+  opacity: 0.55;
+}
+
+.crest {
+  display: block;
+  width: 750px;
+  height: auto;
+  fill: var(--accent);
+  filter: drop-shadow(0 0 30px rgba(255, 176, 0, 0.38));
+}
+
+.tag {
+  margin-top: 26px;
+  color: var(--fg-1);
+  font-size: 27px;
+  letter-spacing: 0.02em;
+}
+
+.nots {
+  display: flex;
+  gap: 34px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px dashed var(--line-2);
+  color: var(--fg);
+  font-size: 23px;
+}
+
+.nots span {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nots span::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+
+.cmd {
+  margin-top: 30px;
+  color: var(--fg-2);
+  font-size: 19px;
+}
+
+.cmd b {
+  margin-right: 10px;
+  color: var(--accent);
+}
+
+.status {
+  display: flex;
+  justify-content: space-between;
+  height: 44px;
+  border-top: 1px solid var(--line-2);
+  color: var(--fg-2);
+  font-size: 18px;
+}
+
+.status > span {
+  display: flex;
+}
+
+.si {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.r .si {
+  border-right: 0;
+  border-left: 1px solid var(--line);
+}
+
+.si b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.mark {
+  background: var(--accent);
+  color: var(--ink);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  border-right: 0;
+}
+
+.mark::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.sq {
+  width: 9px;
+  height: 9px;
+  background: var(--ok);
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="body">
+    <svg class="crenel" viewBox="0 0 150 2" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="M0 0h6v2h-6zM12 0h6v2h-6zM24 0h6v2h-6zM36 0h6v2h-6zM48 0h6v2h-6zM60 0h6v2h-6zM72 0h6v2h-6zM84 0h6v2h-6zM96 0h6v2h-6zM108 0h6v2h-6zM120 0h6v2h-6zM132 0h6v2h-6zM144 0h6v2h-6z"/></svg>
+    <svg class="crest" viewBox="0 0 150 20" shape-rendering="crispEdges" role="img" aria-label="Citadel"><path d="M0 0h18v5h-18zM24 0h6v5h-6zM36 0h18v5h-18zM66 0h12v5h-12zM84 0h12v5h-12zM108 0h18v5h-18zM132 0h6v5h-6zM0 5h6v5h-6zM24 5h6v5h-6zM42 5h6v5h-6zM60 5h6v5h-6zM72 5h6v5h-6zM84 5h6v5h-6zM96 5h6v5h-6zM108 5h6v5h-6zM132 5h6v5h-6zM0 10h6v5h-6zM24 10h6v5h-6zM42 10h6v5h-6zM60 10h18v5h-18zM84 10h6v5h-6zM96 10h6v5h-6zM108 10h12v5h-12zM132 10h6v5h-6zM0 15h18v5h-18zM24 15h6v5h-6zM42 15h6v5h-6zM60 15h6v5h-6zM72 15h6v5h-6zM84 15h12v5h-12zM108 15h18v5h-18zM132 15h18v5h-18z"/></svg>
+    <div class="tag">local-first ssh · tunnels · encrypted vault</div>
+    <div class="nots"><span>no account</span><span>no cloud</span><span>no telemetry</span></div>
+    <div class="cmd"><b>$</b> curl -fsSL https://sepehrmohseni.github.io/citadel/install.sh | sh</div>
+  </div>
+  <div class="status">
+    <span class="l"><span class="si mark">CITADEL</span><span class="si">linux · macos · windows</span><span class="si">mit or apache-2.0</span></span>
+    <span class="r"><span class="si"><span class="sq"></span>github.com/sepehrmohseni/citadel</span></span>
+  </div>
+</div>
+</body>
+</html>

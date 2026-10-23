@@ -1,5 +1,6 @@
 import { api, events, type Answer, type PromptEvent } from "./api";
 import { h, icon } from "./dom";
+import { whenUnlocked } from "./shell";
 import { field, input, modal, toggle } from "./ui";
 
 function respond(id: number, answer: Answer): void {
@@ -29,6 +30,7 @@ function hostKey(ev: Extract<PromptEvent, { kind: "host_key" }>): void {
           icon("warn", 16),
           h("span", null, `The key presented by ${target} does not match the trusted one. The server may have been reinstalled, or the connection may be intercepted.`),
         ),
+        ev.previous ? field("Previously trusted fingerprint", h("code", { class: "fingerprint old" }, ev.previous)) : null,
         field(`New ${ev.algorithm} fingerprint`, h("code", { class: "fingerprint" }, ev.fingerprint)),
         toggle(false, "I verified this fingerprint with the server owner out of band", (v) => {
           verified = v;
@@ -36,6 +38,7 @@ function hostKey(ev: Extract<PromptEvent, { kind: "host_key" }>): void {
           if (dangerBtn) dangerBtn.disabled = !v;
         }),
       ),
+      focus: ".modal-actions button.primary",
       actions: [
         { label: "Replace key and connect", kind: "danger", run: () => (verified ? reply(true) : false) },
         { label: "Abort", kind: "primary", run: () => reply(false) },
@@ -56,6 +59,7 @@ function hostKey(ev: Extract<PromptEvent, { kind: "host_key" }>): void {
       h("p", { class: "muted" }, `First connection to ${target}. Compare this fingerprint with the server's before trusting it. Citadel stores the key encrypted in your vault.`),
       field(`${ev.algorithm} fingerprint`, h("code", { class: "fingerprint" }, ev.fingerprint)),
     ),
+    focus: ".modal-actions button.ghost",
     actions: [
       { label: "Reject", kind: "ghost", run: () => reply(false) },
       { label: "Trust and connect", kind: "primary", run: () => reply(true) },
@@ -71,7 +75,7 @@ function interactive(ev: Extract<PromptEvent, { kind: "interactive" }>): void {
     respond(ev.id, a);
     for (const f of fields) f.value = "";
   };
-  modal({
+  const m = modal({
     title: `Authenticate ${ev.user}@${ev.host}`,
     onClose: () => {
       if (!answered) reply({ kind: "cancel" });
@@ -82,7 +86,7 @@ function interactive(ev: Extract<PromptEvent, { kind: "interactive" }>): void {
         class: "stack",
         onSubmit: (e: Event) => {
           e.preventDefault();
-          (document.querySelector(".modal-actions .primary") as HTMLButtonElement | null)?.click();
+          m.el.querySelector<HTMLButtonElement>(".modal-actions .primary")?.click();
         },
       },
       ev.name ? h("strong", null, ev.name) : null,
@@ -99,7 +103,9 @@ function interactive(ev: Extract<PromptEvent, { kind: "interactive" }>): void {
 
 export function initPrompts(): void {
   void events.prompt((ev) => {
-    if (ev.kind === "host_key") hostKey(ev);
-    else interactive(ev);
+    void whenUnlocked().then(() => {
+      if (ev.kind === "host_key") hostKey(ev);
+      else interactive(ev);
+    });
   });
 }

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -21,6 +22,10 @@ pub struct Prefs {
     pub paste_confirm_lines: u32,
     pub copy_on_select: bool,
     pub renderer: String,
+    pub keybindings: BTreeMap<String, Vec<String>>,
+    pub global_hotkey: String,
+    pub restore_tabs: bool,
+    pub detect_ports: bool,
 }
 
 impl Default for Prefs {
@@ -41,6 +46,10 @@ impl Default for Prefs {
             paste_confirm_lines: 5,
             copy_on_select: false,
             renderer: "auto".into(),
+            keybindings: BTreeMap::new(),
+            global_hotkey: "Ctrl+Alt+Space".into(),
+            restore_tabs: true,
+            detect_ports: true,
         }
     }
 }
@@ -59,6 +68,18 @@ impl Prefs {
         self.autolock_minutes = self.autolock_minutes.min(24 * 60);
         if !matches!(self.renderer.as_str(), "auto" | "webgl" | "dom") {
             self.renderer = "auto".into();
+        }
+        let printable = |s: &str, max: usize| s.len() <= max && !s.chars().any(char::is_control);
+        self.keybindings.retain(|id, chords| {
+            chords.retain(|c| printable(c, 48));
+            chords.truncate(4);
+            printable(id, 48)
+        });
+        while self.keybindings.len() > 256 {
+            self.keybindings.pop_last();
+        }
+        if !printable(&self.global_hotkey, 48) {
+            self.global_hotkey = String::new();
         }
         self
     }

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), Channel: class {} }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefined) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ readText: vi.fn(), writeText: vi.fn() }));
 vi.mock("@xterm/xterm", () => ({ Terminal: class {} }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
@@ -16,6 +15,8 @@ const { THEMES, themeFor } = await import("../themes");
 const { parseQuick, parseSsh } = await import("../palette");
 const { keyOf, terminalChord, foreignKey } = await import("../dom");
 const { rtlRuns, withFallback } = await import("../terminal");
+const keymap = await import("../keymap");
+const { primaryFamily, stackFor } = await import("../pickers");
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
 
@@ -136,5 +137,69 @@ describe("right-to-left rendering", () => {
     expect(withFallback('"Fira Code"')).toBe('"Fira Code", "Vazirmatn Variable", monospace');
     const once = withFallback("Menlo");
     expect(withFallback(once)).toBe(once);
+  });
+});
+
+describe("keymap", () => {
+  const ev = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
+
+  it("normalizes chords by physical key on any layout", () => {
+    expect(keymap.chordOf(ev({ key: "k", code: "KeyK", ctrlKey: true }))).toBe("Ctrl+K");
+    expect(keymap.chordOf(ev({ key: "ن", code: "KeyK", ctrlKey: true }))).toBe("Ctrl+K");
+    expect(keymap.chordOf(ev({ key: "؟", code: "Slash", shiftKey: true }))).toBe("Shift+/");
+    expect(keymap.chordOf(ev({ key: "Shift", code: "ShiftLeft", shiftKey: true }))).toBeNull();
+    expect(keymap.chordOf(ev({ key: "ArrowDown", code: "ArrowDown" }))).toBe("Down");
+    expect(keymap.normalize("shift+ctrl+k")).toBe("Ctrl+Shift+K");
+  });
+
+  it("keeps Ctrl+letter for the shell inside a terminal", () => {
+    const term = { terminal: true, typing: false, buttonish: false };
+    const page = { terminal: false, typing: false, buttonish: false };
+    expect(keymap.allowed("Ctrl+W", "app", term)).toBe(false);
+    expect(keymap.allowed("Ctrl+K", "app", term)).toBe(false);
+    expect(keymap.allowed("Ctrl+Shift+W", "app", term)).toBe(true);
+    expect(keymap.allowed("Ctrl+W", "app", page)).toBe(true);
+    expect(keymap.allowed("Shift+Insert", "terminal", term)).toBe(true);
+    expect(keymap.allowed("Ctrl+Shift+C", "terminal", page)).toBe(false);
+  });
+
+  it("never fires single keys while typing or on buttons", () => {
+    expect(keymap.allowed("G", "app", { terminal: false, typing: true, buttonish: false })).toBe(false);
+    expect(keymap.allowed("Enter", "hosts", { terminal: false, typing: false, buttonish: true })).toBe(false);
+    expect(keymap.allowed("J", "hosts", { terminal: false, typing: false, buttonish: false })).toBe(true);
+  });
+
+  it("honours overrides and reports conflicts", () => {
+    expect(keymap.bindings("go.hosts")).toEqual(["G H"]);
+    keymap.setOverrides({ "go.hosts": ["Ctrl+Shift+H"] });
+    expect(keymap.bindings("go.hosts")).toEqual(["Ctrl+Shift+H"]);
+    expect(keymap.isDefault("go.hosts")).toBe(false);
+    expect(keymap.conflicts("G T", "go.hosts").map((c) => c.id)).toEqual(["go.tunnels"]);
+    expect(keymap.conflicts("G", "x").length).toBeGreaterThan(3);
+    keymap.setOverrides({});
+    expect(keymap.isDefault("go.hosts")).toBe(true);
+  });
+
+  it("dispatches sequences and single chords to bound handlers", () => {
+    const off = keymap.install(() => false);
+    let hits = 0;
+    const unbind = keymap.bind("go.audit", () => {
+      hits++;
+    });
+    window.dispatchEvent(ev({ key: "g", code: "KeyG", bubbles: true }));
+    window.dispatchEvent(ev({ key: "a", code: "KeyA", bubbles: true }));
+    expect(hits).toBe(1);
+    window.dispatchEvent(ev({ key: "a", code: "KeyA", bubbles: true }));
+    expect(hits).toBe(1);
+    unbind();
+    off();
+  });
+});
+
+describe("font picker helpers", () => {
+  it("round-trips the primary family through a safe stack", () => {
+    expect(primaryFamily('"Fira Code", "JetBrains Mono Variable", monospace')).toBe("Fira Code");
+    expect(stackFor("Fira Code")).toBe('"Fira Code", "JetBrains Mono Variable", monospace');
+    expect(primaryFamily(stackFor("JetBrains Mono Variable"))).toBe("JetBrains Mono Variable");
   });
 });

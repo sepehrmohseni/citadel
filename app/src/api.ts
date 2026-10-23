@@ -29,7 +29,7 @@ export interface VaultStatus {
 }
 
 export interface BackupInfo {
-  path: string;
+  name: string;
   created_ms: number;
   bytes: number;
 }
@@ -272,6 +272,50 @@ export interface Prefs {
   paste_confirm_lines: number;
   copy_on_select: boolean;
   renderer: "auto" | "webgl" | "dom";
+  keybindings: Record<string, string[]>;
+  global_hotkey: string;
+  restore_tabs: boolean;
+  detect_ports: boolean;
+}
+
+export interface FileFilter {
+  name: string;
+  extensions: string[];
+}
+
+export interface Picked {
+  token: string;
+  name: string;
+  path: string;
+}
+
+export type RestoreSource = { kind: "snapshot"; name: string } | { kind: "file"; token: string };
+
+export interface FontFamily {
+  name: string;
+  mono: boolean;
+}
+
+export type FleetEvent =
+  | { kind: "started"; host: Id }
+  | { kind: "output"; host: Id; stderr: boolean; text: string }
+  | { kind: "truncated"; host: Id }
+  | { kind: "done"; host: Id; status: number | null; ms: number }
+  | { kind: "failed"; host: Id; error: string; ms: number }
+  | { kind: "finished" };
+
+export interface Listener {
+  port: number;
+  scope: "address" | "loopback" | "any";
+  address: string;
+  process: string | null;
+  pid: number | null;
+}
+
+export interface HotkeyStatus {
+  chord: string;
+  active: boolean;
+  error: string | null;
 }
 
 export interface MergeReport {
@@ -374,7 +418,7 @@ export interface AgentSocket {
 }
 
 export type PromptEvent =
-  | { id: number; kind: "host_key"; host: string; port: number; algorithm: string; fingerprint: string; status: "unknown" | "changed" }
+  | { id: number; kind: "host_key"; host: string; port: number; algorithm: string; fingerprint: string; status: "unknown" | "changed"; previous: string | null }
   | {
       id: number;
       kind: "interactive";
@@ -395,14 +439,28 @@ export const api = {
   vaultUnlock: (password: string) => invoke<void>("vault_unlock", { password }),
   vaultLock: () => invoke<void>("vault_lock"),
   vaultChangePassword: (current: string, next: string) => invoke<void>("vault_change_password", { current, next }),
-  vaultExport: (path: string, password: string) => invoke<number>("vault_export", { path, password }),
-  vaultImport: (path: string, password: string, replace: boolean) =>
-    invoke<ImportOutcome>("vault_import", { path, password, replace }),
+  vaultExport: (target: string, password: string) => invoke<number>("vault_export", { target, password }),
+  vaultImport: (source: string, password: string, replace: boolean) =>
+    invoke<ImportOutcome>("vault_import", { source, password, replace }),
   vaultAudit: () => invoke<AuditReport>("vault_audit"),
   backups: () => invoke<BackupInfo[]>("backups_list"),
   backupNow: () => invoke<BackupInfo>("backup_now"),
-  backupRestore: (path: string, password: string, replace: boolean) => invoke<MergeReport>("backup_restore", { path, password, replace }),
-  recordingSave: (path: string, content: string) => invoke<number>("recording_save", { path, content }),
+  backupRestore: (source: RestoreSource, password: string, replace: boolean) => invoke<ImportOutcome>("backup_restore", { source, password, replace }),
+  recordingSave: (target: string, content: string) => invoke<number>("recording_save", { target, content }),
+  pickOpen: (title: string, filters: FileFilter[], multiple = false) => invoke<Picked[]>("pick_open", { title, filters, multiple }),
+  pickSave: (title: string, defaultName: string, filters: FileFilter[]) => invoke<Picked | null>("pick_save", { title, defaultName, filters }),
+  grantDropped: (paths: string[]) => invoke<Picked[]>("grant_dropped", { paths }),
+  fonts: () => invoke<FontFamily[]>("fonts_list"),
+  sessionLoad: () => invoke<string | null>("session_load"),
+  sessionSave: (body: string) => invoke<void>("session_save", { body }),
+  fleetRun: (hosts: Id[], command: string, timeoutSecs: number, feed: Channel<FleetEvent>) => invoke<number>("fleet_run", { hosts, command, timeoutSecs, feed }),
+  fleetCancel: (id: number) => invoke<void>("fleet_cancel", { id }),
+  ports: (host: Id) => invoke<Listener[]>("ports_list", { host }),
+  portFree: (preferred: number) => invoke<number>("port_free", { preferred }),
+  openLocal: (port: number) => invoke<void>("open_local", { port }),
+  openLink: (which: "repo" | "issues" | "releases" | "site" | "author") => invoke<void>("open_link", { which }),
+  hotkeyStatus: () => invoke<HotkeyStatus>("hotkey_status"),
+  hotkeySet: (chord: string) => invoke<HotkeyStatus>("hotkey_set", { chord }),
 
   hosts: () => invoke<Host[]>("hosts_list"),
   hostSave: (input: HostInput) => invoke<Host>("host_save", { input }),
@@ -413,8 +471,8 @@ export const api = {
   identityGenerate: (label: string, kind: KeyKind) => invoke<Identity>("identity_generate", { label, kind }),
   identityImport: (label: string, pem: string, passphrase: string | null) =>
     invoke<Identity>("identity_import", { label, pem, passphrase }),
-  identityImportFile: (label: string, path: string, passphrase: string | null) =>
-    invoke<Identity>("identity_import_file", { label, path, passphrase }),
+  identityImportFile: (label: string, source: string, passphrase: string | null) =>
+    invoke<Identity>("identity_import_file", { label, source, passphrase }),
   identityAgent: (label: string, publicKey: string) => invoke<Identity>("identity_agent", { label, publicKey }),
   identityDelete: (id: Id) => invoke<void>("identity_delete", { id }),
   agentKeys: () => invoke<AgentKey[]>("agent_keys"),
@@ -448,6 +506,7 @@ export const api = {
     invoke<number>("sftp_download", { host, remote, local, progress }),
   sftpUpload: (host: Id, local: string, remote: string, progress: Channel<Progress>) =>
     invoke<number>("sftp_upload", { host, local, remote, progress }),
+  sftpRealpath: (host: Id, path: string) => invoke<string>("sftp_realpath", { host, path }),
   sftpRead: (host: Id, path: string) => invoke<string>("sftp_read", { host, path }),
   sftpWrite: (host: Id, path: string, content: string) => invoke<void>("sftp_write", { host, path, content }),
 

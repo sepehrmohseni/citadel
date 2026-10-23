@@ -5,22 +5,24 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import { save } from "@tauri-apps/plugin-dialog";
 
-import { Channel, api, errCode, errText, type Id, type Prefs, type PtyStatus, type Snapshot, type TelemetryMsg } from "./api";
-import { bytes, duration, h, icon, isMac, keyOf, rate, terminalChord } from "./dom";
-import { currentTab, openFiles, retitleTab, type Tab, type TabTone } from "./shell";
-import { hostById, links, prefs, refreshHosts } from "./store";
+import { Channel, api, errCode, errText, events, type Id, type Listener, type Prefs, type PtyStatus } from "./api";
+import { bytes, h, icon, terminalChord } from "./dom";
+import { bind, bindings, pretty } from "./keymap";
+import { forwardPort, PortsPanel } from "./ports";
+import { currentTab, notifyLayout, openFiles, retitleTab, type Tab, type TabTone } from "./shell";
+import { hostById, links, prefs, refreshHosts, updatePrefs } from "./store";
+import { Telemetry } from "./telemetry";
 import { themeFor } from "./themes";
-import { btn, confirmBox, contextMenu, copyText, fail, input, readClipboard, toast, writeClipboard } from "./ui";
+import { actionToast, btn, confirmBox, contextMenu, copyText, fail, input, readClipboard, toast, writeClipboard } from "./ui";
 
 const encoder = new TextEncoder();
-const HISTORY = 90;
 const ACK_STEP = 256 * 1024;
 const BLINK_IDLE_MS = 10_000;
-const RTL = "\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFC";
+const PORT_WATCH_MS = 15_000;
+const RTL = "֐-ࣿיִ-﷿ﹰ-ﻼ";
 const HAS_RTL = new RegExp(`[${RTL}]`);
-const RTL_RUN = new RegExp(`[${RTL}](?:[${RTL}\u200C\u200D\u0660-\u0669\u06F0-\u06F9 .,:;!?()«»-]*[${RTL}])?`, "g");
+const RTL_RUN = new RegExp(`[${RTL}](?:[${RTL}‌‍٠-٩۰-۹ .,:;!?()«»-]*[${RTL}])?`, "g");
 const PERSIAN_FALLBACK = '"Vazirmatn Variable"';
 
 export function rtlRuns(text: string): [number, number][] {
@@ -65,21 +67,55 @@ function wantsGl(): boolean {
   return mode === "webgl" || state === "hardware";
 }
 
-interface Live {
+function hint(id: string): string {
+  const b = bindings(id)[0];
+  return b ? ` (${pretty(b).join(" ")})` : "";
+}
+
+interface Recording {
+  start: number;
+  cols: number;
+  rows: number;
+  events: string[];
+  decoder: TextDecoder;
+}
+
+export interface Pane {
   key: string;
   host: Id;
-  title: string;
-  send(text: string): void;
+  label: string;
+  el: HTMLElement;
+  tone(): TabTone;
+  connecting(): boolean;
+  banner(text: string): void;
   focus(): void;
+  show(): void;
+  hide(): void;
+  refit(): void;
+  dispose(): void;
+  copy(): void;
+  paste(): void;
+  find(): void;
+  selectAll(): void;
+  clear(): void;
+  broadcast(): void;
+  record(): void;
+  telemetry(): void;
+  ports(): void;
+  files(): void;
+  send(text: string): void;
   text(): string;
   renderer(): string;
 }
 
-const live = new Map<string, Live>();
+const live = new Map<string, Pane>();
+const byEl = new WeakMap<Element, Pane>();
 const broadcast = new Set<string>();
 const bcastListeners = new Set<() => void>();
 let bcastWarned = false;
 let seq = 0;
+let lastPaneKey: string | null = null;
+const announced = new Set<string>();
 
 function bcastChanged(): void {
   for (const fn of [...bcastListeners]) fn();
@@ -103,14 +139,6 @@ async function toggleBroadcast(key: string): Promise<void> {
   bcastChanged();
 }
 
-interface Recording {
-  start: number;
-  cols: number;
-  rows: number;
-  events: string[];
-  decoder: TextDecoder;
-}
-
 if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
   Object.assign(window, {
     __citadel: {
@@ -123,7 +151,7 @@ if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
 }
 
 export function liveTerminals(): { key: string; title: string; host: string }[] {
-  return [...live.values()].map(({ key, title, host }) => ({ key, title, host }));
+  return [...live.values()].map(({ key, label, host }) => ({ key, title: label, host }));
 }
 
 export function sendText(key: string, text: string): void {
@@ -131,8 +159,20 @@ export function sendText(key: string, text: string): void {
 }
 
 export function activeTerminalKey(): string | null {
-  const t = currentTab();
-  return t && live.has(t.key) ? t.key : null;
+  const focused = paneOf(document.activeElement);
+  if (focused) return focused.key;
+  if (lastPaneKey && live.has(lastPaneKey)) return lastPaneKey;
+  return null;
+}
+
+function paneOf(node: Element | null): Pane | undefined {
+  let el: Element | null = node;
+  while (el) {
+    const p = byEl.get(el);
+    if (p) return p;
+    el = el.parentElement;
+  }
+  return undefined;
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {
@@ -147,181 +187,10 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function spark(values: number[], max: number, cls = ""): SVGSVGElement {
-  const w = 268;
-  const hgt = 46;
-  const svg = h("svg", { class: `spark ${cls}`, viewBox: `0 0 ${w} ${hgt}`, preserveAspectRatio: "none" }) as SVGSVGElement;
-  if (values.length < 2) return svg;
-  const top = Math.max(max, 1e-9);
-  const step = w / (HISTORY - 1);
-  const pts = values.map((v, i) => [w - (values.length - 1 - i) * step, hgt - 2 - (Math.min(v, top) / top) * (hgt - 6)] as const);
-  const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  if (!first || !last) return svg;
-  const area = `${line}L${last[0].toFixed(1)},${hgt}L${first[0].toFixed(1)},${hgt}Z`;
-  svg.append(
-    h("path", { d: area, fill: "currentColor", opacity: "0.12" }),
-    h("path", { d: line, fill: "none", stroke: "currentColor", "stroke-width": "1.5", "vector-effect": "non-scaling-stroke" }),
-  );
-  return svg;
-}
-
-function meter(pct: number): HTMLElement {
-  const cls = pct >= 90 ? "bar crit" : pct >= 75 ? "bar hot" : "bar";
-  return h("div", { class: cls }, h("span", { style: { width: `${Math.max(0, Math.min(100, pct)).toFixed(1)}%` } }));
-}
-
-class Telemetry {
-  el: HTMLElement;
-  #host: Id;
-  #id: number | null = null;
-  #cpu: number[] = [];
-  #rx: number[] = [];
-  #tx: number[] = [];
-  #starting = false;
-
-  constructor(host: Id) {
-    this.#host = host;
-    this.el = h("aside", { class: "telemetry", hidden: true }, h("div", { class: "muted" }, "Waiting for first sample…"));
-  }
-
-  get open(): boolean {
-    return !this.el.hidden;
-  }
-
-  async toggle(): Promise<void> {
-    if (this.open) this.stop();
-    else await this.start();
-  }
-
-  async start(): Promise<void> {
-    this.el.hidden = false;
-    if (this.#id !== null || this.#starting) return;
-    this.#starting = true;
-    const feed = new Channel<TelemetryMsg>();
-    feed.onmessage = (m) => this.#onMsg(m);
-    try {
-      this.#id = await api.telemetryStart(this.#host, feed);
-    } catch (e) {
-      this.el.replaceChildren(h("div", { class: "alert" }, icon("warn", 15), h("span", null, errText(e))));
-    } finally {
-      this.#starting = false;
-    }
-  }
-
-  stop(): void {
-    this.el.hidden = true;
-    if (this.#id !== null) {
-      void api.telemetryStop(this.#id).catch(() => undefined);
-      this.#id = null;
-    }
-  }
-
-  #onMsg(m: TelemetryMsg): void {
-    if (m.kind === "sample") this.#render(m);
-    else if (m.kind === "error") {
-      this.el.replaceChildren(h("div", { class: "alert" }, icon("warn", 15), h("span", null, m.message)));
-      this.#id = null;
-    } else this.#id = null;
-  }
-
-  #render(s: Snapshot): void {
-    const push = (arr: number[], v: number) => {
-      arr.push(v);
-      if (arr.length > HISTORY) arr.shift();
-    };
-    const rx = s.net.reduce((n, i) => n + i.rx_bps, 0);
-    const tx = s.net.reduce((n, i) => n + i.tx_bps, 0);
-    push(this.#cpu, s.cpu.busy_pct);
-    push(this.#rx, rx);
-    push(this.#tx, tx);
-    const netMax = Math.max(...this.#rx, ...this.#tx, 1024);
-    const memUsed = s.mem.total_kib - s.mem.available_kib;
-    const docker =
-      s.docker.state === "available"
-        ? h(
-            "div",
-            { class: "tm-block" },
-            h("div", { class: "tm-label" }, "Containers", h("b", null, String(s.docker.containers.length))),
-            h(
-              "div",
-              null,
-              s.docker.containers.slice(0, 40).map((c) =>
-                h(
-                  "div",
-                  { class: "ctr", title: `${c.image}\n${c.status}` },
-                  h("span", { class: `dot ${c.state === "running" ? "ok" : c.state === "restarting" ? "warn" : c.state === "exited" ? "idle" : "err"}` }),
-                  h("span", { class: "grow" }, c.name),
-                  h("span", { class: "dim mono" }, c.state),
-                ),
-              ),
-            ),
-          )
-        : s.docker.state === "unavailable"
-          ? h("div", { class: "tm-row" }, h("span", { class: "dim" }, "Docker"), h("span", null, s.docker.reason))
-          : null;
-    this.el.replaceChildren(
-      h(
-        "div",
-        { class: "tm-head" },
-        h("span", { class: "host" }, s.host.hostname || "remote"),
-        h("span", { class: "dim" }, `${s.host.kernel} · up ${duration(s.host.uptime_secs)} · ${s.host.cores} cores`),
-      ),
-      h(
-        "div",
-        { class: "tm-block", style: { color: "var(--accent)" } },
-        h("div", { class: "tm-label" }, "CPU", h("b", null, `${s.cpu.busy_pct.toFixed(1)}%`)),
-        spark(this.#cpu, 100),
-        h(
-          "div",
-          { class: "cores", title: "Per-core utilisation" },
-          s.cpu.per_core.map((p) => h("span", { title: `${p.toFixed(0)}%` }, h("i", { style: { height: `${Math.min(100, p)}%` } }))),
-        ),
-        h("div", { class: "tm-row" }, h("span", { class: "dim" }, "Load"), h("span", null, s.cpu.load.map((l) => l.toFixed(2)).join("  "))),
-      ),
-      h(
-        "div",
-        { class: "tm-block" },
-        h("div", { class: "tm-label" }, "Memory", h("b", null, `${s.mem.used_pct.toFixed(1)}%`)),
-        meter(s.mem.used_pct),
-        h("div", { class: "tm-row" }, h("span", { class: "dim" }, "Used"), h("span", null, `${bytes(memUsed * 1024)} / ${bytes(s.mem.total_kib * 1024)}`)),
-        s.mem.swap_total_kib > 0
-          ? h("div", { class: "tm-row" }, h("span", { class: "dim" }, "Swap"), h("span", null, `${bytes(s.mem.swap_used_kib * 1024)} / ${bytes(s.mem.swap_total_kib * 1024)}`))
-          : null,
-      ),
-      h(
-        "div",
-        { class: "tm-block", style: { color: "var(--info)" } },
-        h("div", { class: "tm-label" }, "Network", h("b", null, `↓ ${rate(rx)}  ↑ ${rate(tx)}`)),
-        h("div", { style: { position: "relative" } }, spark(this.#rx, netMax), h("div", { style: { position: "absolute", inset: "0", color: "var(--violet)" } }, spark(this.#tx, netMax))),
-        s.net
-          .filter((n) => n.rx_bps + n.tx_bps > 0 || s.net.length <= 4)
-          .slice(0, 6)
-          .map((n) => h("div", { class: "tm-row" }, h("span", { class: "dim" }, n.name), h("span", null, `↓ ${rate(n.rx_bps)}  ↑ ${rate(n.tx_bps)}`))),
-      ),
-      h(
-        "div",
-        { class: "tm-block" },
-        h("div", { class: "tm-label" }, "Disks"),
-        s.disks.slice(0, 8).map((d) =>
-          h(
-            "div",
-            { class: "stack", style: { gap: "4px" }, title: d.fs },
-            h("div", { class: "tm-row" }, h("span", null, d.mount), h("span", null, `${bytes(d.used_kib * 1024, 0)} / ${bytes(d.total_kib * 1024, 0)}`)),
-            meter(d.used_pct),
-          ),
-        ),
-      ),
-      ...(docker ? [docker] : []),
-    );
-  }
-}
-
-export function terminalTab(host: Id): Tab {
+function createPane(host: Id, changed: () => void): Pane {
   const meta = hostById(host);
   const label = meta?.label ?? "host";
-  const key = `term:${host}:${++seq}`;
+  const key = `pane:${host}:${++seq}`;
   const p: Prefs | null = prefs.get();
   const term = new Terminal({
     allowProposedApi: true,
@@ -353,6 +222,7 @@ export function terminalTab(host: Id): Tab {
 
   const hostEl = h("div", { class: "term-host" });
   const tele = new Telemetry(host);
+  const portsPanel = new PortsPanel(host, label);
   const toneDot = h("span", { class: "dot idle" });
   const findInput = input({ placeholder: "Find in scrollback", "aria-label": "Find" });
   const findBox = h(
@@ -394,10 +264,10 @@ export function terminalTab(host: Id): Tab {
     if (!r || !r.events.length) return;
     const header = JSON.stringify({ version: 2, width: r.cols, height: r.rows, timestamp: Math.floor(Date.now() / 1000), title: label, env: { TERM: "xterm-256color" } });
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    const path = await save({ defaultPath: `${label.replace(/[^\w.-]+/g, "_")}-${stamp}.cast`, filters: [{ name: "asciicast", extensions: ["cast"] }] });
-    if (!path) return;
     try {
-      const size = await api.recordingSave(path, `${header}\n${r.events.join("\n")}\n`);
+      const target = await api.pickSave("Save recording", `${label.replace(/[^\w.-]+/g, "_")}-${stamp}.cast`, [{ name: "asciicast", extensions: ["cast"] }]);
+      if (!target) return;
+      const size = await api.recordingSave(target.token, `${header}\n${r.events.join("\n")}\n`);
       toast(`Saved ${bytes(size)} recording. Replay with: asciinema play`, "ok", 6000);
     } catch (e) {
       fail(e, "Recording not saved");
@@ -413,23 +283,41 @@ export function terminalTab(host: Id): Tab {
       ? h("span", { class: "chain" }, icon("link", 12), meta.jump.map((j) => hostById(j)?.label ?? "?").join(" → "))
       : null,
     h("span", { class: "spacer" }),
-    btn("", { icon: "search", small: true, ghost: true, title: `Find (${isMac ? "⌘" : "Ctrl+Shift+"}F)`, onClick: () => openFind() }),
-    btn("", { icon: "folder", small: true, ghost: true, title: "Open files", onClick: () => openFiles(host) }),
-    btn("", { icon: "chart", small: true, ghost: true, title: "Host telemetry", onClick: () => void tele.toggle().then(() => refit()) }),
+    btn("", { icon: "search", small: true, ghost: true, title: `Find${hint("term.find")}`, onClick: () => openFind() }),
+    btn("", { icon: "folder", small: true, ghost: true, title: `Open files${hint("term.files")}`, onClick: () => openFiles(host) }),
+    btn("", { icon: "plug", small: true, ghost: true, title: `Remote ports${hint("term.ports")}`, onClick: () => togglePorts() }),
+    btn("", { icon: "chart", small: true, ghost: true, title: `Host telemetry${hint("term.telemetry")}`, onClick: () => toggleTelemetry() }),
     recEl,
     bcastEl,
-    btn("", { icon: "broadcast", small: true, ghost: true, title: `Broadcast input (${isMac ? "⌘" : "Ctrl+Shift+"}B)`, onClick: () => void toggleBroadcast(key) }),
-    btn("", { icon: "stop", small: true, ghost: true, title: `Record session (${isMac ? "⌘" : "Ctrl+Shift+"}R)`, onClick: toggleRec }),
+    btn("", { icon: "broadcast", small: true, ghost: true, title: `Broadcast input${hint("term.broadcast")}`, onClick: () => void toggleBroadcast(key) }),
+    btn("", { icon: "stop", small: true, ghost: true, title: `Record session${hint("term.record")}`, onClick: toggleRec }),
+    btn("", { icon: "split", small: true, ghost: true, title: `Split right${hint("pane.right")}`, onClick: () => splitFrom(api_, "row") }),
     btn("", { icon: "refresh", small: true, ghost: true, title: "Reconnect", onClick: () => void reconnect() }),
   );
   const main = h("div", { class: "term-main" }, bar, hostEl, overlay, findBox);
-  const el = h("div", { class: "term-pane", style: { background: themeFor(p?.theme).theme.background ?? "" } }, main, tele.el);
+  const el = h("div", { class: "term-pane", style: { background: themeFor(p?.theme).theme.background ?? "" } }, main, portsPanel.el, tele.el);
 
   let gl: WebglAddon | null = null;
   let glTimer: ReturnType<typeof setTimeout> | undefined;
+  let visible = false;
+  let pid: number | null = null;
+  let opened = false;
+  let disposed = false;
+  let exitCode: number | null = null;
+  let outbox: Uint8Array[] = [];
+  let flushing = false;
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  let tone: TabTone = "idle";
+  let connecting = false;
+  let attempt = 0;
+  let userTurn = false;
+  let blinkTimer: ReturnType<typeof setTimeout> | undefined;
+  let watchTimer: ReturnType<typeof setInterval> | undefined;
+  let knownPorts: Set<number> | null = null;
+
   const attachGl = () => {
     if (glTimer) clearTimeout(glTimer);
-    if (gl || disposed || !wantsGl()) return;
+    if (gl || disposed || !opened || !wantsGl()) return;
     try {
       const addon = new WebglAddon();
       addon.onContextLoss(() => {
@@ -445,25 +333,16 @@ export function terminalTab(host: Id): Tab {
   const releaseGl = () => {
     if (glTimer) clearTimeout(glTimer);
     glTimer = setTimeout(() => {
-      if (!gl || !el.hidden) return;
+      if (!gl || visible) return;
       gl.dispose();
       gl = null;
     }, 30000);
   };
 
-  let pid: number | null = null;
-  let opened = false;
-  let disposed = false;
-  let exitCode: number | null = null;
-  let outbox: Uint8Array[] = [];
-  let flushing = false;
-  let resizeTimer: ReturnType<typeof setTimeout> | undefined;
-  let tone: TabTone = "idle";
-
   const setTone = (t: TabTone) => {
     tone = t;
     toneDot.className = `dot ${t === "ok" ? "ok" : t === "warn" ? "warn pulse" : t === "err" ? "err" : "idle"}`;
-    retitleTab(key, label, t);
+    changed();
   };
 
   const flush = async () => {
@@ -501,7 +380,7 @@ export function terminalTab(host: Id): Tab {
   };
 
   const refit = () => {
-    if (el.hidden || !opened) return;
+    if (!visible || !opened) return;
     try {
       fit.fit();
     } catch {
@@ -509,8 +388,53 @@ export function terminalTab(host: Id): Tab {
     }
   };
 
+  const failed = (e: unknown) => {
+    const code = errCode(e);
+    const fixes: HTMLElement[] = [];
+    if (code === "legacy") {
+      fixes.push(
+        btn("enable legacy algorithms and retry", {
+          primary: true,
+          icon: "shield",
+          onClick: async () => {
+            const cur = hostById(host);
+            if (!cur) return;
+            const { asInput } = await import("./views/hosts");
+            try {
+              await api.hostSave({ ...asInput(cur), legacy_crypto: true });
+              await refreshHosts();
+              void connect();
+            } catch (err) {
+              fail(err);
+            }
+          },
+        }),
+      );
+    }
+    if (code === "auth" || code === "key_encrypted") {
+      fixes.push(
+        btn("edit host", {
+          icon: "edit",
+          onClick: () =>
+            void import("./views/hosts").then(({ hostForm }) => {
+              const cur = hostById(host);
+              if (cur) hostForm(cur);
+            }),
+        }),
+      );
+    }
+    showOverlay([
+      icon("warn", 22),
+      h("strong", null, "Connection failed"),
+      h("span", { class: "muted err-detail" }, errText(e)),
+      h("div", { class: "row" }, ...fixes, btn("Retry", { primary: fixes.length === 0, icon: "refresh", onClick: () => void connect() })),
+    ]);
+  };
+
   const connect = async () => {
-    if (disposed) return;
+    if (disposed || connecting) return;
+    connecting = true;
+    const mine = ++attempt;
     exitCode = null;
     setTone("warn");
     showOverlay([h("div", { class: "spinner" }), h("strong", null, `Connecting to ${label}`), h("span", { class: "muted" }, "Negotiating keys and authenticating…")]);
@@ -524,6 +448,7 @@ export function terminalTab(host: Id): Tab {
       void api.ptyAck(ackFor, processed).catch(() => undefined);
     };
     data.onmessage = (buf) => {
+      if (mine !== attempt) return;
       const chunk = new Uint8Array(buf);
       term.write(chunk, () => {
         processed += chunk.length;
@@ -533,71 +458,39 @@ export function terminalTab(host: Id): Tab {
     };
     const status = new Channel<PtyStatus>();
     status.onmessage = (s) => {
+      if (mine !== attempt) return;
       if (s.kind === "exit") exitCode = s.code;
       else if (s.kind === "signal") term.write(`\r\n\x1b[2m[terminated by ${s.name}]\x1b[0m\r\n`);
       else ended();
     };
     try {
       refit();
-      pid = await api.ptyOpen(host, Math.max(term.cols, 2), Math.max(term.rows, 2), data, status);
-      if (disposed) {
-        void api.ptyClose(pid);
+      const opened_ = await api.ptyOpen(host, Math.max(term.cols, 2), Math.max(term.rows, 2), data, status);
+      if (disposed || mine !== attempt) {
+        void api.ptyClose(opened_).catch(() => undefined);
         return;
       }
+      pid = opened_;
       ackFor = pid;
       ack();
       hideOverlay();
       setTone("ok");
-      term.focus();
+      if (visible) term.focus();
+      armPortWatch();
     } catch (e) {
+      if (mine !== attempt) return;
       pid = null;
       setTone("err");
-      const code = errCode(e);
-      const fixes: HTMLElement[] = [];
-      if (code === "legacy") {
-        fixes.push(
-          btn("enable legacy algorithms and retry", {
-            primary: true,
-            icon: "shield",
-            onClick: async () => {
-              const cur = hostById(host);
-              if (!cur) return;
-              const { asInput } = await import("./views/hosts");
-              try {
-                await api.hostSave({ ...asInput(cur), legacy_crypto: true });
-                await refreshHosts();
-                void connect();
-              } catch (err) {
-                fail(err);
-              }
-            },
-          }),
-        );
-      }
-      if (code === "auth" || code === "key_encrypted") {
-        fixes.push(
-          btn("edit host", {
-            icon: "edit",
-            onClick: () =>
-              void import("./views/hosts").then(({ hostForm }) => {
-                const cur = hostById(host);
-                if (cur) hostForm(cur);
-              }),
-          }),
-        );
-      }
-      showOverlay([
-        icon("warn", 22),
-        h("strong", null, "Connection failed"),
-        h("span", { class: "muted err-detail" }, errText(e)),
-        h("div", { class: "row" }, ...fixes, btn("Retry", { primary: fixes.length === 0, icon: "refresh", onClick: () => void connect() })),
-      ]);
+      failed(e);
+    } finally {
+      if (mine === attempt) connecting = false;
     }
   };
 
   const ended = () => {
     pid = null;
     outbox = [];
+    stopPortWatch();
     if (disposed) return;
     setTone("idle");
     showOverlay([
@@ -613,6 +506,8 @@ export function terminalTab(host: Id): Tab {
       if (!ok) return;
       const old = pid;
       pid = null;
+      attempt++;
+      connecting = false;
       await api.ptyClose(old).catch(() => undefined);
     }
     await connect();
@@ -638,6 +533,15 @@ export function terminalTab(host: Id): Tab {
     } else if (e.key === "Escape") closeFind();
   });
 
+  const asUser = (fn: () => void) => {
+    userTurn = true;
+    try {
+      fn();
+    } finally {
+      userTurn = false;
+    }
+  };
+
   const pasteGuard = async (text: string) => {
     const limit = prefs.get()?.paste_confirm_lines ?? 5;
     const lines = text.split(/\r\n|\r|\n/).length;
@@ -649,10 +553,10 @@ export function terminalTab(host: Id): Tab {
       );
       if (!ok) return;
     }
-    term.paste(text);
+    asUser(() => term.paste(text));
+    term.focus();
   };
 
-  let blinkTimer: ReturnType<typeof setTimeout> | undefined;
   const wakeCursor = () => {
     if (!(prefs.get()?.cursor_blink ?? true)) return;
     if (!term.options.cursorBlink) term.options.cursorBlink = true;
@@ -661,10 +565,65 @@ export function terminalTab(host: Id): Tab {
       term.options.cursorBlink = false;
     }, BLINK_IDLE_MS);
   };
+
+  const stopPortWatch = () => {
+    if (watchTimer) clearInterval(watchTimer);
+    watchTimer = undefined;
+  };
+
+  const watchPorts = async () => {
+    if (!visible || pid === null || document.hidden || portsPanel.open) return;
+    let list: Listener[];
+    try {
+      list = await api.ports(host);
+    } catch {
+      stopPortWatch();
+      return;
+    }
+    const seen = new Set(list.map((l) => l.port));
+    if (knownPorts) {
+      for (const l of list) {
+        if (knownPorts.has(l.port) || l.port < 1024 || l.scope === "address") continue;
+        const tag = `${host}:${l.port}:${l.pid ?? ""}`;
+        if (announced.has(tag)) continue;
+        announced.add(tag);
+        actionToast(`port ${l.port}${l.process ? ` (${l.process})` : ""} opened on ${label}`, [
+          { label: "forward & open", run: () => void forwardPort(host, label, l, true).catch((e) => fail(e, "Forward failed")) },
+        ]);
+      }
+    }
+    knownPorts = seen;
+  };
+
+  const armPortWatch = () => {
+    stopPortWatch();
+    knownPorts = null;
+    if (!(prefs.get()?.detect_ports ?? true)) return;
+    void watchPorts();
+    watchTimer = setInterval(() => void watchPorts(), PORT_WATCH_MS);
+  };
+
+  const toggleTelemetry = () => {
+    void tele.toggle().then(() => refit());
+  };
+
+  const togglePorts = () => {
+    portsPanel.toggle();
+    requestAnimationFrame(refit);
+  };
+
+  const copySelection = () => {
+    if (term.hasSelection()) void copyText(term.getSelection(), "Copied selection");
+  };
+
+  const pasteClipboard = () => {
+    void readClipboard().then((text) => (text ? pasteGuard(text) : undefined), (err) => fail(err, "Clipboard unavailable"));
+  };
+
   term.onData((d) => {
     wakeCursor();
     sendString(d);
-    if (broadcast.has(key)) {
+    if (userTurn && broadcast.has(key)) {
       for (const k of broadcast) if (k !== key) live.get(k)?.send(d);
     }
   });
@@ -683,64 +642,60 @@ export function terminalTab(host: Id): Tab {
   term.onSelectionChange(() => {
     if (prefs.get()?.copy_on_select && term.hasSelection()) void writeClipboard(term.getSelection()).catch(() => undefined);
   });
-  const copySelection = () => {
-    if (term.hasSelection()) void copyText(term.getSelection(), "Copied selection");
-  };
-  const pasteClipboard = () => {
-    void readClipboard().then((text) => (text ? pasteGuard(text) : undefined), (err) => fail(err, "Clipboard unavailable"));
-  };
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== "keydown") return true;
-    const mod = isMac ? e.metaKey && !e.ctrlKey && !e.altKey : e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey;
-    const k = keyOf(e).toLowerCase();
-    const handled = () => {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    };
-    if ((mod && k === "c") || (e.key === "Insert" && e.ctrlKey && !e.shiftKey)) {
-      copySelection();
-      return handled();
-    }
-    if ((mod && k === "v") || (e.key === "Insert" && e.shiftKey && !e.ctrlKey)) {
-      pasteClipboard();
-      return handled();
-    }
-    if (mod && k === "b") {
-      void toggleBroadcast(key);
-      return handled();
-    }
-    if (mod && k === "r") {
-      toggleRec();
-      return handled();
-    }
-    if (mod && k === "f") {
-      openFind();
-      return handled();
-    }
-    if (isMac && e.metaKey && k === "k") return false;
     if (!pid && !overlay.hidden && e.key === "Enter") {
+      e.preventDefault();
       void connect();
-      return handled();
+      return false;
     }
     const chord = terminalChord(e, true);
     if (chord !== null) {
-      term.input(chord);
-      return handled();
+      e.preventDefault();
+      asUser(() => term.input(chord));
+      return false;
     }
     return true;
   });
+  hostEl.addEventListener(
+    "keydown",
+    () => {
+      userTurn = true;
+      queueMicrotask(() => {
+        userTurn = false;
+      });
+    },
+    true,
+  );
+  for (const ev of ["compositionend", "input"]) {
+    hostEl.addEventListener(
+      ev,
+      () => {
+        userTurn = true;
+        queueMicrotask(() => {
+          userTurn = false;
+        });
+      },
+      true,
+    );
+  }
   hostEl.addEventListener("contextmenu", (e) => {
     e.preventDefault();
-    const sc = isMac ? "⌘" : "Ctrl+Shift+";
     contextMenu(e.clientX, e.clientY, [
-      { label: "Copy", icon: "copy", hint: `${sc}C`, disabled: !term.hasSelection(), run: copySelection },
-      { label: "Paste", icon: "download", hint: `${sc}V`, run: pasteClipboard },
+      { label: "Copy", icon: "copy", hint: pretty(bindings("term.copy")[0] ?? "")[0], disabled: !term.hasSelection(), run: copySelection },
+      { label: "Paste", icon: "download", hint: pretty(bindings("term.paste")[0] ?? "")[0], run: pasteClipboard },
       { label: "Select all", icon: "check", run: () => term.selectAll() },
       null,
-      { label: "Find", icon: "search", hint: `${sc}F`, run: openFind },
+      { label: "Split right", icon: "split", hint: pretty(bindings("pane.right")[0] ?? "")[0], run: () => splitFrom(api_, "row") },
+      { label: "Split down", icon: "split", hint: pretty(bindings("pane.down")[0] ?? "")[0], run: () => splitFrom(api_, "col") },
+      null,
+      { label: "Find", icon: "search", hint: pretty(bindings("term.find")[0] ?? "")[0], run: openFind },
       { label: "Clear scrollback", icon: "trash", run: () => term.clear() },
     ]);
+  });
+  el.addEventListener("focusin", () => {
+    lastPaneKey = key;
+    changed();
   });
 
   const ro = new ResizeObserver(() => requestAnimationFrame(refit));
@@ -766,6 +721,7 @@ export function terminalTab(host: Id): Tab {
       term.refresh(0, term.rows - 1);
     }
     el.style.background = t.background ?? "";
+    if (!np.detect_ports) stopPortWatch();
     refit();
   }, false);
 
@@ -798,53 +754,293 @@ export function terminalTab(host: Id): Tab {
     void connect();
   };
 
-  live.set(key, {
+  const api_: Pane = {
     key,
     host,
-    title: label,
-    send: (text) => sendString(text),
-    focus: () => term.focus(),
-    renderer: () => (gl ? "webgl" : "dom"),
-    text: () => {
-      const b = term.buffer.active;
-      const out: string[] = [];
-      for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) ?? "");
-      return out.join("\n");
-    },
-  });
-
-  return {
-    key,
-    title: label,
-    icon: "terminal",
-    host,
+    label,
     el,
-    tone: "warn",
-    onShow() {
+    tone: () => tone,
+    connecting: () => connecting,
+    banner: (text) => {
+      const clean = text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").replace(/\n/g, "\r\n");
+      term.write(`\x1b[2m${clean}\x1b[0m\r\n`);
+    },
+    focus: () => term.focus(),
+    show: () => {
+      visible = true;
       open();
       attachGl();
       refit();
-      term.focus();
+      if (pid !== null && !watchTimer) armPortWatch();
     },
-    onHide() {
+    hide: () => {
+      visible = false;
       releaseGl();
     },
-    dispose() {
+    refit,
+    dispose: () => {
       if (rec) void stopRec();
       broadcast.delete(key);
       bcastListeners.delete(renderBcast);
       bcastChanged();
       disposed = true;
+      attempt++;
       live.delete(key);
       unsubLink();
       unsubPrefs();
       ro.disconnect();
-      tele.stop();
+      tele.dispose();
+      portsPanel.dispose();
+      stopPortWatch();
       if (glTimer) clearTimeout(glTimer);
       if (blinkTimer) clearTimeout(blinkTimer);
       if (pid !== null) void api.ptyClose(pid).catch(() => undefined);
       pid = null;
       term.dispose();
     },
+    copy: copySelection,
+    paste: pasteClipboard,
+    find: openFind,
+    selectAll: () => term.selectAll(),
+    clear: () => term.clear(),
+    broadcast: () => void toggleBroadcast(key),
+    record: toggleRec,
+    telemetry: toggleTelemetry,
+    ports: togglePorts,
+    files: () => openFiles(host),
+    send: (text) => sendString(text),
+    text: () => {
+      const b = term.buffer.active;
+      const out: string[] = [];
+      for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) ?? "");
+      return out.join("\n");
+    },
+    renderer: () => (gl ? "webgl" : "dom"),
+  };
+  byEl.set(el, api_);
+  live.set(key, api_);
+  return api_;
+}
+
+export type LayoutSpec = { pane: Id } | { dir: "row" | "col"; ratio: number; a: LayoutSpec; b: LayoutSpec };
+
+type Tree = { kind: "leaf"; pane: Pane } | { kind: "split"; dir: "row" | "col"; ratio: number; a: Tree; b: Tree };
+
+interface Layout {
+  split(from: Pane, dir: "row" | "col"): void;
+  closePane(p: Pane): boolean;
+  cycle(from: Pane, step: number): void;
+}
+
+const layouts = new WeakMap<Pane, Layout>();
+
+function splitFrom(p: Pane, dir: "row" | "col"): void {
+  layouts.get(p)?.split(p, dir);
+}
+
+function leaves(n: Tree): Pane[] {
+  return n.kind === "leaf" ? [n.pane] : [...leaves(n.a), ...leaves(n.b)];
+}
+
+function validSpec(spec: unknown, depth = 0): spec is LayoutSpec {
+  if (!spec || typeof spec !== "object" || depth > 6) return false;
+  const s = spec as Record<string, unknown>;
+  if (typeof s.pane === "string") return true;
+  return (s.dir === "row" || s.dir === "col") && typeof s.ratio === "number" && validSpec(s.a, depth + 1) && validSpec(s.b, depth + 1);
+}
+
+export function layoutTab(spec: LayoutSpec): Tab | null {
+  if (!validSpec(spec)) return null;
+  const key = `term:${++seq}`;
+  const el = h("div", { class: "term-layout" });
+  let visible = false;
+  let focused: Pane | null = null;
+  const changed = () => {
+    const all = leaves(root);
+    const now = all.find((x) => x.key === lastPaneKey);
+    if (now) focused = now;
+    for (const x of all) x.el.classList.toggle("focused", all.length > 1 && x === focused);
+    const tones = all.map((x) => x.tone());
+    const tone: TabTone = tones.includes("err") ? "err" : tones.includes("warn") ? "warn" : tones.includes("ok") ? "ok" : "idle";
+    const head = focused ?? all[0];
+    const extra = all.length > 1 ? ` +${all.length - 1}` : "";
+    retitleTab(key, `${head?.label ?? "host"}${extra}`, tone);
+  };
+  const build = (s: LayoutSpec): Tree | null => {
+    if ("pane" in s) {
+      if (!hostById(s.pane)) return null;
+      const pane = createPane(s.pane, () => changed());
+      layouts.set(pane, layout);
+      return { kind: "leaf", pane };
+    }
+    const a = build(s.a);
+    const b = build(s.b);
+    if (a && b) return { kind: "split", dir: s.dir, ratio: Math.min(0.85, Math.max(0.15, s.ratio)), a, b };
+    return a ?? b;
+  };
+  const toSpec = (n: Tree): LayoutSpec => (n.kind === "leaf" ? { pane: n.pane.host } : { dir: n.dir, ratio: Math.round(n.ratio * 100) / 100, a: toSpec(n.a), b: toSpec(n.b) });
+  const refitAll = () => requestAnimationFrame(() => leaves(root).forEach((x) => x.refit()));
+  const render = (n: Tree): HTMLElement => {
+    if (n.kind === "leaf") return n.pane.el;
+    const a = render(n.a);
+    const b = render(n.b);
+    const wrapA = h("div", { class: "split-cell" }, a);
+    const wrapB = h("div", { class: "split-cell" }, b);
+    const apply = () => {
+      wrapA.style.flex = `${n.ratio} 1 0`;
+      wrapB.style.flex = `${1 - n.ratio} 1 0`;
+    };
+    apply();
+    const box = h("div", { class: `split split-${n.dir}` });
+    const divider = h("div", {
+      class: "split-divider",
+      role: "separator",
+      "aria-orientation": n.dir === "row" ? "vertical" : "horizontal",
+      onPointerdown: (e: PointerEvent) => {
+        e.preventDefault();
+        divider.setPointerCapture(e.pointerId);
+        const rect = box.getBoundingClientRect();
+        const move = (ev: PointerEvent) => {
+          const r = n.dir === "row" ? (ev.clientX - rect.left) / rect.width : (ev.clientY - rect.top) / rect.height;
+          n.ratio = Math.min(0.85, Math.max(0.15, r));
+          apply();
+          refitAll();
+        };
+        const up = () => {
+          divider.removeEventListener("pointermove", move);
+          divider.removeEventListener("pointerup", up);
+          notifyLayout();
+        };
+        divider.addEventListener("pointermove", move);
+        divider.addEventListener("pointerup", up);
+      },
+    });
+    box.append(wrapA, divider, wrapB);
+    return box;
+  };
+  const redraw = () => {
+    el.replaceChildren(render(root));
+    if (visible) for (const x of leaves(root)) x.show();
+    changed();
+    refitAll();
+  };
+  const replace = (n: Tree, target: Pane, make: (leaf: Tree) => Tree | null): Tree | null => {
+    if (n.kind === "leaf") return n.pane === target ? make(n) : n;
+    const a = replace(n.a, target, make);
+    const b = replace(n.b, target, make);
+    if (a && b) return { ...n, a, b };
+    return a ?? b;
+  };
+  const layout: Layout = {
+    split(from, dir) {
+      const pane = createPane(from.host, () => changed());
+      layouts.set(pane, layout);
+      const next = replace(root, from, (leaf) => ({ kind: "split", dir, ratio: 0.5, a: leaf, b: { kind: "leaf", pane } }));
+      if (!next) return;
+      root = next;
+      lastPaneKey = pane.key;
+      redraw();
+      requestAnimationFrame(() => pane.focus());
+      notifyLayout();
+    },
+    closePane(target) {
+      if (root.kind === "leaf") return false;
+      const next = replace(root, target, () => null);
+      if (!next) return false;
+      target.dispose();
+      root = next;
+      const first = leaves(root)[0];
+      if (first) lastPaneKey = first.key;
+      redraw();
+      requestAnimationFrame(() => first?.focus());
+      notifyLayout();
+      return true;
+    },
+    cycle(from, step) {
+      const all = leaves(root);
+      const i = all.indexOf(from);
+      const next = all[(i + step + all.length) % all.length];
+      next?.focus();
+    },
+  };
+  const built = build(spec);
+  if (!built) return null;
+  let root: Tree = built;
+  el.append(render(root));
+  const first = leaves(root)[0];
+  focused = first ?? null;
+  return {
+    key,
+    title: first?.label ?? "host",
+    icon: "terminal",
+    host: first?.host,
+    el,
+    tone: "warn",
+    snapshot: () => ({ kind: "term", layout: toSpec(root) }),
+    closePane: () => {
+      const target = leaves(root).find((x) => x.key === lastPaneKey && x.el.contains(document.activeElement)) ?? null;
+      return target ? layout.closePane(target) : false;
+    },
+    onShow() {
+      visible = true;
+      for (const x of leaves(root)) x.show();
+      refitAll();
+      requestAnimationFrame(() => (focused ?? leaves(root)[0])?.focus());
+    },
+    onHide() {
+      visible = false;
+      for (const x of leaves(root)) x.hide();
+    },
+    dispose() {
+      for (const x of leaves(root)) x.dispose();
+    },
   };
 }
+
+export function terminalTab(host: Id): Tab {
+  const tab = layoutTab({ pane: host });
+  if (tab) return tab;
+  const el = h("div", { class: "term-layout" });
+  return { key: `term:missing:${++seq}`, title: "missing host", icon: "terminal", el, dispose: () => undefined };
+}
+
+function focusedPane(): Pane | undefined {
+  return paneOf(document.activeElement);
+}
+
+const onPane = (fn: (p: Pane) => void) => () => {
+  const p = focusedPane();
+  if (!p) return false;
+  fn(p);
+  return true;
+};
+
+bind("term.copy", onPane((p) => p.copy()));
+bind("term.paste", onPane((p) => p.paste()));
+bind("term.find", onPane((p) => p.find()));
+bind("term.selectAll", onPane((p) => p.selectAll()));
+bind("term.clear", onPane((p) => p.clear()));
+bind("term.broadcast", onPane((p) => p.broadcast()));
+bind("term.record", onPane((p) => p.record()));
+bind("term.telemetry", onPane((p) => p.telemetry()));
+bind("term.ports", onPane((p) => p.ports()));
+bind("term.files", onPane((p) => p.files()));
+bind("pane.right", onPane((p) => splitFrom(p, "row")));
+bind("pane.down", onPane((p) => splitFrom(p, "col")));
+bind("pane.next", onPane((p) => layouts.get(p)?.cycle(p, 1)));
+bind("pane.prev", onPane((p) => layouts.get(p)?.cycle(p, -1)));
+
+const zoom = (delta: number) => () => {
+  const cur = prefs.get();
+  if (!cur || !currentTab()?.key.startsWith("term:")) return false;
+  const size = delta === 0 ? 13 : Math.min(32, Math.max(8, cur.font_size + delta));
+  void updatePrefs({ font_size: size }).catch((e) => fail(e));
+  return true;
+};
+bind("zoom.in", zoom(1));
+bind("zoom.out", zoom(-1));
+bind("zoom.reset", zoom(0));
+
+void events.banner((label, text) => {
+  for (const p of live.values()) if (p.label === label && p.connecting()) p.banner(text);
+});

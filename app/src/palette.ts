@@ -6,6 +6,7 @@ import { parseSsh } from "./target";
 import { activeTerminalKey, sendText } from "./terminal";
 import { fail, toast } from "./ui";
 import { hostForm } from "./views/hosts";
+import { openSettings } from "./views/settings";
 
 interface Item {
   group: string;
@@ -76,6 +77,8 @@ function items(): Item[] {
   }
   const actions: Item[] = [
     { group: "Actions", title: "New host", icon: "plus", run: () => hostForm() },
+    { group: "Actions", title: "Fleet run", icon: "fleet", keywords: "run command many hosts parallel exec", run: () => go("fleet") },
+    { group: "Actions", title: "Keyboard shortcuts", icon: "keyboard", keywords: "keybindings hotkeys customize global", run: () => openSettings("shortcuts") },
     { group: "Actions", title: "Tunnels", icon: "tunnel", keywords: "port forward socks", run: () => go("tunnels") },
     { group: "Actions", title: "Keys", icon: "key", keywords: "identity generate ssh key", run: () => go("keys") },
     { group: "Actions", title: "Snippets", icon: "snippet", run: () => go("snippets") },

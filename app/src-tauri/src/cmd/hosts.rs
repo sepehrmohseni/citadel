@@ -117,6 +117,13 @@ fn build_host(vault: &Vault, input: HostInput) -> CmdResult<HostProfile> {
         .ssh_alias
         .map(|a| a.trim().to_owned())
         .filter(|a| !a.is_empty());
+    if let Some(alias) = &host.ssh_alias
+        && !crate::cmd::config::plain_alias(alias)
+    {
+        return Err(AppError::invalid(
+            "ssh config alias must be a single name without spaces, wildcards or commas",
+        ));
+    }
     Ok(host)
 }
 
@@ -267,9 +274,13 @@ pub async fn identity_import(
 pub async fn identity_import_file(
     state: State<'_, AppState>,
     label: String,
-    path: String,
+    source: String,
     passphrase: Option<String>,
 ) -> CmdResult<IdentityView> {
+    let path = state
+        .0
+        .grants
+        .redeem(&source, crate::grants::Access::Read)?;
     let vault = state.0.vault.clone();
     let pass = passphrase.filter(|p| !p.is_empty()).map(secret_from);
     blocking(move || {

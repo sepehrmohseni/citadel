@@ -1,530 +1,607 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Citadel</title>
-<meta name="description" content="Citadel is a desktop SSH client, tunnel manager and SFTP browser with a local encrypted vault and optional replication to storage you control.">
+<title>Citadel · local-first SSH client, tunnels and encrypted vault</title>
+<meta name="description" content="Citadel is an open-source desktop SSH client, tunnel manager and SFTP browser built around a local encrypted vault. No account, no cloud, no telemetry. Linux, macOS and Windows.">
+<link rel="canonical" href="https://sepehrmohseni.github.io/citadel/">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0a0a0a">
-<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap">
-<link rel="stylesheet" href="style.css">
+<meta name="theme-color" content="#0b0b0c">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Citadel">
+<meta property="og:url" content="https://sepehrmohseni.github.io/citadel/">
+<meta property="og:title" content="Citadel · local-first SSH, tunnels and encrypted vault">
+<meta property="og:description" content="A desktop SSH client, tunnel manager and SFTP browser built around a local encrypted vault. No account, no cloud, no telemetry.">
+<meta property="og:image" content="https://sepehrmohseni.github.io/citadel/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Citadel block-letter wordmark in amber on black, with the tagline local-first ssh, tunnels, encrypted vault.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Citadel · local-first SSH, tunnels and encrypted vault">
+<meta name="twitter:description" content="A desktop SSH client, tunnel manager and SFTP browser built around a local encrypted vault. No account, no cloud, no telemetry.">
+<meta name="twitter:image" content="https://sepehrmohseni.github.io/citadel/assets/og.png">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="apple-touch-icon" href="assets/icon-128.png">
+<link rel="preload" href="assets/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script>document.documentElement.className = "js";</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Citadel","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","description":"Local-first SSH client, tunnel manager and SFTP browser with an encrypted vault.","url":"https://sepehrmohseni.github.io/citadel/","license":"https://github.com/sepehrmohseni/citadel#license","author":{"@type":"Person","name":"Sepehr Mohseni","url":"https://sepehrmohseni.com"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<script src="assets/site.js" defer></script>
 </head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
+<body class="has-status">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="crest" viewBox="0 0 150 20"><path d="M0 0h18v5h-18zM24 0h6v5h-6zM36 0h18v5h-18zM66 0h12v5h-12zM84 0h12v5h-12zM108 0h18v5h-18zM132 0h6v5h-6zM0 5h6v5h-6zM24 5h6v5h-6zM42 5h6v5h-6zM60 5h6v5h-6zM72 5h6v5h-6zM84 5h6v5h-6zM96 5h6v5h-6zM108 5h6v5h-6zM132 5h6v5h-6zM0 10h6v5h-6zM24 10h6v5h-6zM42 10h6v5h-6zM60 10h18v5h-18zM84 10h6v5h-6zM96 10h6v5h-6zM108 10h12v5h-12zM132 10h6v5h-6zM0 15h18v5h-18zM24 15h6v5h-6zM42 15h6v5h-6zM60 15h6v5h-6zM72 15h6v5h-6zM84 15h12v5h-12zM108 15h18v5h-18zM132 15h18v5h-18z"/></symbol>
+  <symbol id="glyph" viewBox="0 0 12 10"><path d="M0 0h3v5h-3zM9 0h3v5h-3zM0 5h12v5h-12z"/></symbol>
+</svg>
+<a class="skip" href="#main">skip to content</a>
 
 <header class="top">
-  <div class="wrap bar">
-    <a class="mark" href="#">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 27V9h4v4h4V9h6v4h4V9h4v18z" fill="none" stroke="#ffcc00" stroke-width="2.5"/><rect x="13" y="19" width="6" height="8" fill="#ffcc00"/></svg>
-      CITADEL
-    </a>
-    <nav class="links" aria-label="Sections">
-      <a href="#architecture">Architecture</a>
-      <a href="#security">Security</a>
-      <a href="#tunnels">Tunnels</a>
-      <a href="#sync">Sync</a>
-      <a href="#format">Format</a>
-      <a href="#performance">Performance</a>
-      <a href="#install">Install</a>
-      <a href="https://github.com/sepehrmohseni/citadel">Source</a>
-    </nav>
+  <a class="brand" href="#top" aria-label="Citadel, back to top"><svg viewBox="0 0 12 10" shape-rendering="crispEdges" aria-hidden="true"><use href="#glyph"/></svg><span class="word">CITADEL</span></a>
+  <nav class="tabs" aria-label="Sections">
+    <a class="tab" href="#vault"><span class="n">1</span>vault</a>
+    <a class="tab" href="#network"><span class="n">2</span>network</a>
+    <a class="tab" href="#fleet"><span class="n">3</span>fleet</a>
+    <a class="tab" href="#keyboard"><span class="n">4</span>keyboard</a>
+    <a class="tab" href="#keys"><span class="n">5</span>keys</a>
+    <a class="tab" href="#limits"><span class="n">6</span>limits</a>
+    <a class="tab" href="#security"><span class="n">7</span>security</a>
+    <a class="tab" href="#more"><span class="n">8</span>more</a>
+  </nav>
+  <div class="top-r">
+    <a class="btn small" href="https://github.com/sepehrmohseni/citadel">source</a>
+    <a class="btn small primary" href="#install">install</a>
   </div>
 </header>
 
 <main id="main">
-<section class="hero" aria-labelledby="title">
+<section class="hero" id="top" aria-label="Introduction">
   <div class="wrap">
-    <h1 id="title">SSH, tunnels and SFTP over a <em>local</em> encrypted vault.</h1>
-    <p class="lede">Citadel stores hosts, keys, tunnels and trusted host keys in one file encrypted with a key derived from your password. There is no Citadel account and no Citadel server. Replication is optional and goes to an S3-compatible bucket, a WebDAV share or a Git repository that you control. The core is Rust; the interface is a Tauri v2 application on the system webview.</p>
-    <div class="actions">
-      <a class="btn primary" href="https://github.com/sepehrmohseni/citadel/releases">Download</a>
-      <a class="btn" href="#install">Build from source</a>
-      <a class="btn" href="#security">Security model</a>
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <svg class="crenel" viewBox="0 0 150 2" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="M0 0h6v2h-6zM12 0h6v2h-6zM24 0h6v2h-6zM36 0h6v2h-6zM48 0h6v2h-6zM60 0h6v2h-6zM72 0h6v2h-6zM84 0h6v2h-6zM96 0h6v2h-6zM108 0h6v2h-6zM120 0h6v2h-6zM132 0h6v2h-6zM144 0h6v2h-6z"/></svg>
+        <h1 class="crest-h"><svg class="crest" viewBox="0 0 150 20" shape-rendering="crispEdges" role="img" aria-label="Citadel"><use href="#crest"/></svg></h1>
+        <p class="tagline">local-first ssh · tunnels · encrypted vault</p>
+        <p class="pitch">Your servers, keys and tunnels. One encrypted file. Your machine.</p>
+        <p class="pitch-sub">Citadel is a desktop SSH client, tunnel manager and SFTP browser built around a local vault. Nothing is sent to a Citadel service; there is no Citadel service.</p>
+        <ul class="nots" aria-label="What Citadel does not have">
+          <li>no account</li>
+          <li>no cloud</li>
+          <li>no telemetry</li>
+        </ul>
+      </div>
+
+      <figure class="demo-wrap" aria-labelledby="demo-title">
+        <div class="term ticks" id="demo">
+          <div class="term-tabs" role="group" aria-label="Demo scenes">
+            <button class="ttab" type="button" aria-pressed="true" data-scene="0"><span class="n">1</span><span class="sq"></span>fleet</button>
+            <button class="ttab" type="button" aria-pressed="false" data-scene="1"><span class="n">2</span><span class="sq"></span>web-1</button>
+            <button class="ttab" type="button" aria-pressed="false" data-scene="2"><span class="n">3</span><span class="sq"></span>intl</button>
+            <button class="ttab" type="button" aria-pressed="false" data-scene="3"><span class="n">4</span><span class="sq"></span>db-1</button>
+          </div>
+          <div class="term-head">
+            <span class="sq"></span><span class="who" data-head>fleet run · @prod · 5 hosts</span>
+            <span class="ctl"><button class="btn small" type="button" data-pause aria-pressed="false">pause</button></span>
+          </div>
+          <div class="term-screen" aria-hidden="true">
+            <div class="term-lines" data-lines>
+              <div><span class="t-amber t-b">›</span> <span class="t-fg">systemctl is-active nginx</span></div>
+              <div> </div>
+              <div class="fl"><span class="t-fg">web-1</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">38 ms</span><span></span></div>
+              <div class="fl"><span class="t-fg">web-2</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">41 ms</span><span></span></div>
+              <div class="fl"><span class="t-fg">web-3</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">44 ms</span><span></span></div>
+              <div class="fl"><span class="t-fg">db-1</span><span class="sq err"></span><span class="xn">exit 3</span><span class="t-mute">52 ms</span><span></span></div>
+              <div class="fl"><span class="t-fg">edge-1</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">61 ms</span><span></span></div>
+              <div> </div>
+              <div class="grp"><span class="out">active</span><span class="rule"></span><span class="cnt">4 hosts</span></div>
+              <div class="t-mute">  web-1  web-2  web-3  edge-1</div>
+              <div class="grp"><span class="out">inactive</span><span class="rule"></span><span class="cnt">1 host</span></div>
+              <div class="t-mute">  db-1</div>
+              <div> </div>
+              <div><span class="lvl ok">OK</span> <span class="ts">14:02:11</span>  4 of 5 exited 0 · slowest 61 ms</div>
+            </div>
+            <div class="term-toast" data-toast></div>
+            <div class="keycap" data-keycap><kbd>Ctrl</kbd><span class="plus">+</span><kbd>C</kbd></div>
+          </div>
+          <div class="term-status">
+            <span class="l"><span class="si mark">VAULT OPEN</span><span class="si">links <b data-links>5/5</b></span><span class="si hide-s">tunnels <b data-tunnels>1</b></span><span class="si" data-extra>rtt <b>41ms</b></span></span>
+            <span class="r"><span class="si hide-s">kbd <b data-kbd>us</b></span><span class="si" data-clock>14:02</span></span>
+          </div>
+        </div>
+        <figcaption class="demo-cap"><span id="demo-title">Scripted replay of four features: fleet run, remote port detection, right-to-left input and Ctrl+C under a flood. Hostnames are staged.</span></figcaption>
+      </figure>
     </div>
-    <dl class="specs">
-      <div><dt>Key derivation</dt><dd>Argon2id · 64 MiB · t=3 · p=4</dd></div>
-      <div><dt>Encryption</dt><dd>XChaCha20-Poly1305</dd></div>
-      <div><dt>SSH stack</dt><dd>russh 0.64 · ring</dd></div>
-      <div><dt>Forwarding</dt><dd>-L · -R · -D (SOCKS5)</dd></div>
-      <div><dt>SFTP pipeline</dt><dd>64 × 32 KiB in flight</dd></div>
-      <div><dt>License</dt><dd>MIT OR Apache-2.0</dd></div>
+
+    <div class="install ticks" id="install">
+      <div class="frame-h">install<span class="meta" data-detected>linux · macos · windows</span></div>
+      <div class="install-row">
+        <div class="seg" role="tablist" aria-label="Operating system">
+          <button type="button" role="tab" id="tab-linux" aria-controls="cmd-linux" aria-selected="true" data-os="linux">linux</button>
+          <button type="button" role="tab" id="tab-macos" aria-controls="cmd-macos" aria-selected="false" tabindex="-1" data-os="macos">macos</button>
+          <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1" data-os="windows">windows</button>
+        </div>
+        <div class="cmds">
+          <div class="cmd" role="tabpanel" id="cmd-linux" aria-labelledby="tab-linux" data-panel="linux"><span class="os-label">linux</span><span class="prompt" aria-hidden="true">$</span><code>curl -fsSL https://sepehrmohseni.github.io/<wbr>citadel/install.sh | sh</code></div>
+          <div class="cmd" role="tabpanel" id="cmd-macos" aria-labelledby="tab-macos" data-panel="macos"><span class="os-label">macos</span><span class="prompt" aria-hidden="true">$</span><code>curl -fsSL https://sepehrmohseni.github.io/<wbr>citadel/install.sh | sh</code></div>
+          <div class="cmd" role="tabpanel" id="cmd-windows" aria-labelledby="tab-windows" data-panel="windows"><span class="os-label">windows</span><span class="prompt" aria-hidden="true">PS&gt;</span><code>irm https://sepehrmohseni.github.io/<wbr>citadel/install.ps1 | iex</code></div>
+        </div>
+        <button class="btn copy" type="button" data-copy>copy</button>
+      </div>
+      <div class="install-f">
+        <a class="arrow-link" href="https://github.com/sepehrmohseni/citadel/releases/latest">all downloads</a>
+        <a class="arrow-link" href="install.sh" data-script>read the script</a>
+        <a class="arrow-link" href="https://github.com/sepehrmohseni/citadel#building">build from source</a>
+        <span class="log" role="status" aria-live="polite" data-copylog></span>
+      </div>
+    </div>
+
+    <dl class="specs" aria-label="At a glance">
+      <div><dt>kdf</dt><dd>argon2id</dd><dd>m=64MiB t=3 p=4</dd></div>
+      <div><dt>cipher</dt><dd>xchacha20-poly1305</dd><dd>per record, random nonce</dd></div>
+      <div><dt>ssh</dt><dd>russh + ring</dd><dd>no openssl, no libssh2</dd></div>
+      <div><dt>sync</dt><dd>optional</dd><dd>s3 · webdav · git</dd></div>
+      <div><dt>platforms</dt><dd>desktop</dd><dd>linux · macos · windows</dd></div>
+      <div><dt>license</dt><dd>mit or apache-2.0</dd><dd>your choice</dd></div>
     </dl>
   </div>
 </section>
 
-<section id="architecture" aria-labelledby="h-arch">
+<section class="sec" id="vault" aria-labelledby="h-vault">
   <div class="wrap">
-    <h2 id="h-arch"><span class="num">01</span>Architecture</h2>
-    <p>The workspace is split into crates with one responsibility each. The desktop application is a thin layer that owns sessions and the lock lifecycle and forwards bytes to the webview. Every crate below builds and tests without the webview.</p>
+    <p class="sec-label"><span class="num">01</span>vault<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>1</kbd></span></p>
+    <h2 id="h-vault">One encrypted file. Backups you never schedule.</h2>
+    <p class="lede">Hosts, keys, tunnels and trusted host keys live in one local database. Each record is sealed with XChaCha20-Poly1305 under a random data key, and that key is wrapped by one derived from your passphrase with Argon2id. The passphrase is never stored.</p>
 
-    <figure class="figure">
-      <svg viewBox="0 0 960 480" role="img" aria-labelledby="fig1-t fig1-d">
-        <title id="fig1-t">Layering</title>
-        <desc id="fig1-d">The system webview runs xterm.js, the tunnel graph and the management views. It talks to the Tauri core process through raw binary IPC channels for terminal bytes and through typed commands for everything else. The core uses five crates: citadel-ssh, citadel-telemetry, citadel-vault, citadel-config and citadel-sync. Telemetry runs over SSH sessions; sync replicates sealed vault blobs.</desc>
-        <defs>
-          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="d-arrow"/></marker>
-          <marker id="ahh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="d-arrow hot"/></marker>
-        </defs>
-        <rect class="d-box alt" x="20" y="20" width="920" height="110"/>
-        <text class="d-h" x="36" y="44">SYSTEM WEBVIEW</text>
-        <text class="d-m" x="176" y="44">WebKitGTK · WebView2 · WKWebView</text>
-        <rect class="d-box" x="36" y="60" width="280" height="54"/>
-        <text class="d-t" x="176" y="92" text-anchor="middle">xterm.js · WebGL renderer</text>
-        <rect class="d-box" x="340" y="60" width="280" height="54"/>
-        <text class="d-t" x="480" y="92" text-anchor="middle">tunnel graph canvas</text>
-        <rect class="d-box" x="644" y="60" width="280" height="54"/>
-        <text class="d-t" x="784" y="92" text-anchor="middle">hosts · vault · SFTP views</text>
+    <div class="cols cols-7-5">
+      <div>
+        <ul class="points">
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Locks itself.</b> An idle watchdog drops the key from memory. Changing the passphrase rewraps one key; records are not re-encrypted.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Snapshots on their own.</b> Encrypted copies are written on unlock and every 20 minutes when something changed, newest 20 kept, and before every import or restore.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Updates keep your data.</b> Records are stored as named fields with defaults, so newer versions read older records and older versions skip, rather than lose, what they cannot parse. A vault written by a newer release refuses to open instead of being misread.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>A copy before every upgrade.</b> The first launch of a new version keeps a raw copy of the previous database. If the database goes missing and snapshots remain, the lock screen offers to restore them.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Portable, carefully.</b> Password-protected export and import in a documented format, <code>.ctdl</code>. Imports are quarantined: agent forwarding and tunnel autostart off, every host key verified again.</span></li>
+        </ul>
 
-        <line class="d-line hot" x1="176" y1="136" x2="176" y2="194" marker-start="url(#ahh)" marker-end="url(#ahh)"/>
-        <text class="d-h hot" x="192" y="160">tauri::ipc::Channel</text>
-        <text class="d-m" x="192" y="178">terminal bytes as raw binary</text>
-        <line class="d-line" x1="640" y1="136" x2="640" y2="194" marker-start="url(#ah)" marker-end="url(#ah)"/>
-        <text class="d-h" x="656" y="160">invoke() / events</text>
-        <text class="d-m" x="656" y="178">typed commands and state</text>
+        <div class="frame ticks log-frame" style="margin-top:36px">
+          <div class="frame-h">backups<span class="meta">a day in the log, illustrative</span></div>
+          <ol class="log">
+            <li><span class="lvl ok">OK</span><span class="ts">09:00:04</span><span class="msg">unlocked · snapshot written</span></li>
+            <li><span class="lvl ok">OK</span><span class="ts">09:20:04</span><span class="msg">3 records changed · snapshot written</span></li>
+            <li><span class="lvl idle">SKIP</span><span class="ts">09:40:04</span><span class="msg">nothing changed · no snapshot</span></li>
+            <li><span class="lvl ok">OK</span><span class="ts">10:12:31</span><span class="msg">before import · snapshot written</span></li>
+            <li><span class="lvl info">INFO</span><span class="ts">10:12:31</span><span class="msg">import quarantined · host keys dropped</span></li>
+            <li><span class="lvl ok">OK</span><span class="ts">0.2.0</span><span class="msg">new version · raw copy of the previous database kept</span></li>
+          </ol>
+        </div>
+      </div>
 
-        <rect class="d-box hot" x="20" y="200" width="920" height="90"/>
-        <text class="d-h hot" x="36" y="224">TAURI CORE PROCESS</text>
-        <text class="d-m" x="216" y="224">Rust · app/src-tauri</text>
-        <rect class="d-box" x="36" y="238" width="280" height="38"/>
-        <text class="d-t" x="176" y="262" text-anchor="middle">sessions · PTYs</text>
-        <rect class="d-box" x="340" y="238" width="280" height="38"/>
-        <text class="d-t" x="480" y="262" text-anchor="middle">links · tunnels</text>
-        <rect class="d-box" x="644" y="238" width="280" height="38"/>
-        <text class="d-t" x="784" y="262" text-anchor="middle">vault lock lifecycle</text>
-
-        <line class="d-line" x1="104" y1="290" x2="104" y2="326" marker-end="url(#ah)"/>
-        <line class="d-line" x1="292" y1="290" x2="292" y2="326" marker-end="url(#ah)"/>
-        <line class="d-line" x1="480" y1="290" x2="480" y2="326" marker-end="url(#ah)"/>
-        <line class="d-line" x1="668" y1="290" x2="668" y2="326" marker-end="url(#ah)"/>
-        <line class="d-line" x1="856" y1="290" x2="856" y2="326" marker-end="url(#ah)"/>
-
-        <rect class="d-box" x="20" y="330" width="168" height="92"/>
-        <text class="d-h" x="104" y="354" text-anchor="middle">citadel-ssh</text>
-        <text class="d-m" x="104" y="374" text-anchor="middle">russh 0.64 · ring</text>
-        <text class="d-m" x="104" y="392" text-anchor="middle">PTY · chains · SFTP</text>
-        <text class="d-m" x="104" y="410" text-anchor="middle">-L -R -D · agent</text>
-
-        <rect class="d-box" x="208" y="330" width="168" height="92"/>
-        <text class="d-h" x="292" y="354" text-anchor="middle">citadel-telemetry</text>
-        <text class="d-m" x="292" y="374" text-anchor="middle">/proc · df</text>
-        <text class="d-m" x="292" y="392" text-anchor="middle">docker.sock</text>
-        <text class="d-m" x="292" y="410" text-anchor="middle">one exec channel</text>
-
-        <rect class="d-box hot" x="396" y="330" width="168" height="92"/>
-        <text class="d-h hot" x="480" y="354" text-anchor="middle">citadel-vault</text>
-        <text class="d-m" x="480" y="374" text-anchor="middle">redb · Argon2id</text>
-        <text class="d-m" x="480" y="392" text-anchor="middle">XChaCha20-Poly1305</text>
-        <text class="d-m" x="480" y="410" text-anchor="middle">.ctdl · merge</text>
-
-        <rect class="d-box" x="584" y="330" width="168" height="92"/>
-        <text class="d-h" x="668" y="354" text-anchor="middle">citadel-config</text>
-        <text class="d-m" x="668" y="374" text-anchor="middle">~/.ssh/config</text>
-        <text class="d-m" x="668" y="392" text-anchor="middle">lossless round-trip</text>
-        <text class="d-m" x="668" y="410" text-anchor="middle">agent discovery</text>
-
-        <rect class="d-box" x="772" y="330" width="168" height="92"/>
-        <text class="d-h" x="856" y="354" text-anchor="middle">citadel-sync</text>
-        <text class="d-m" x="856" y="374" text-anchor="middle">S3 · WebDAV · Git</text>
-        <text class="d-m" x="856" y="392" text-anchor="middle">ETag / If-Match</text>
-        <text class="d-m" x="856" y="410" text-anchor="middle">no Citadel servers</text>
-
-        <path class="d-line soft" d="M292 422V444H104V426" marker-end="url(#ah)"/>
-        <text class="d-m" x="198" y="466" text-anchor="middle">telemetry uses ssh sessions</text>
-        <path class="d-line soft" d="M856 422V444H480V426" marker-end="url(#ah)"/>
-        <text class="d-m" x="668" y="466" text-anchor="middle">sync replicates sealed vault blobs</text>
-      </svg>
-      <figcaption>Crate layering. Solid arrows are calls; dashed arrows are crate dependencies.</figcaption>
-    </figure>
-
-    <figure class="figure">
-      <svg viewBox="0 0 960 230" role="img" aria-labelledby="fig2-t fig2-d">
-        <title id="fig2-t">Terminal data path</title>
-        <desc id="fig2-d">Bytes from the remote sshd travel over the encrypted SSH channel to the russh session task, through a bounded PTY queue, across a raw binary IPC channel, and into xterm.js. Keystrokes travel back the same way as raw bytes.</desc>
-        <defs>
-          <marker id="bh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="d-arrow"/></marker>
-          <marker id="bhh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="d-arrow hot"/></marker>
-        </defs>
-        <text class="d-m" x="85" y="44" text-anchor="middle">remote</text>
-        <line class="d-line soft" x1="178" y1="52" x2="624" y2="52"/>
-        <text class="d-m" x="401" y="44" text-anchor="middle">Rust core process</text>
-        <text class="d-m" x="717" y="44" text-anchor="middle">IPC</text>
-        <text class="d-m" x="875" y="44" text-anchor="middle">webview</text>
-
-        <rect class="d-box ext" x="20" y="70" width="130" height="70"/>
-        <text class="d-h" x="85" y="100" text-anchor="middle">sshd</text>
-        <text class="d-m" x="85" y="120" text-anchor="middle">remote host</text>
-        <rect class="d-box" x="178" y="70" width="130" height="70"/>
-        <text class="d-h" x="243" y="100" text-anchor="middle">SSH channel</text>
-        <text class="d-m" x="243" y="120" text-anchor="middle">encrypted</text>
-        <rect class="d-box" x="336" y="70" width="130" height="70"/>
-        <text class="d-h" x="401" y="100" text-anchor="middle">russh task</text>
-        <text class="d-m" x="401" y="120" text-anchor="middle">event loop</text>
-        <rect class="d-box" x="494" y="70" width="130" height="70"/>
-        <text class="d-h" x="559" y="100" text-anchor="middle">PTY pump</text>
-        <text class="d-m" x="559" y="120" text-anchor="middle">bounded queue</text>
-        <rect class="d-box hot" x="652" y="70" width="130" height="70"/>
-        <text class="d-h hot" x="717" y="100" text-anchor="middle">IPC Channel</text>
-        <text class="d-m" x="717" y="120" text-anchor="middle">raw bytes</text>
-        <rect class="d-box" x="810" y="70" width="130" height="70"/>
-        <text class="d-h" x="875" y="100" text-anchor="middle">xterm.js</text>
-        <text class="d-m" x="875" y="120" text-anchor="middle">WebGL</text>
-
-        <line class="d-line hot" x1="152" y1="86" x2="174" y2="86" marker-end="url(#bhh)"/>
-        <line class="d-line hot" x1="310" y1="86" x2="332" y2="86" marker-end="url(#bhh)"/>
-        <line class="d-line hot" x1="468" y1="86" x2="490" y2="86" marker-end="url(#bhh)"/>
-        <line class="d-line hot" x1="626" y1="86" x2="648" y2="86" marker-end="url(#bhh)"/>
-        <line class="d-line hot" x1="784" y1="86" x2="806" y2="86" marker-end="url(#bhh)"/>
-        <line class="d-line" x1="174" y1="126" x2="152" y2="126" marker-end="url(#bh)"/>
-        <line class="d-line" x1="332" y1="126" x2="310" y2="126" marker-end="url(#bh)"/>
-        <line class="d-line" x1="490" y1="126" x2="468" y2="126" marker-end="url(#bh)"/>
-        <line class="d-line" x1="648" y1="126" x2="626" y2="126" marker-end="url(#bh)"/>
-        <line class="d-line" x1="806" y1="126" x2="784" y2="126" marker-end="url(#bh)"/>
-
-        <text class="d-t" x="20" y="176">output: terminal bytes cross the IPC boundary as raw binary, not JSON</text>
-        <text class="d-t" x="20" y="196">input: keystrokes return as raw bytes and are written to the channel</text>
-        <text class="d-m" x="20" y="216">a full queue stalls the SSH channel window instead of buffering without limit</text>
-      </svg>
-      <figcaption>Terminal data path. Upper arrows carry output, lower arrows carry input.</figcaption>
-    </figure>
-
-    <h3>Crates</h3>
-    <div class="table"><table>
-      <thead><tr><th>Crate</th><th>Responsibility</th></tr></thead>
-      <tbody>
-        <tr><td><code>citadel-vault</code></td><td>Encrypted record store on redb, key derivation and wrapping, auto-lock watchdog, <code>.ctdl</code> export and import, last-writer-wins merge with tombstones, sync blob absorption and rekeying.</td></tr>
-        <tr><td><code>citadel-ssh</code></td><td>Connections and jump chains, password, key, agent and keyboard-interactive authentication, host key verification, PTY sessions, exec, the reconnecting link supervisor, local, remote and SOCKS5 forwarding, isolated agent forwarding, SFTP.</td></tr>
-        <tr><td><code>citadel-telemetry</code></td><td>CPU, memory, network, disk and container status read from <code>/proc</code>, <code>df</code> and the Docker socket over a single exec channel on an existing session. Nothing is installed on the host.</td></tr>
-        <tr><td><code>citadel-config</code></td><td>Lossless parsing and editing of <code>~/.ssh/config</code>; discovery of the native, 1Password and Bitwarden SSH agents and Windows named pipes.</td></tr>
-        <tr><td><code>citadel-sync</code></td><td>Replication of the sealed vault blob to S3-compatible storage, WebDAV or Git, with optimistic concurrency on ETags.</td></tr>
-        <tr><td><code>app</code></td><td>Tauri v2 application: vanilla TypeScript, xterm.js with the WebGL renderer, tunnel graph canvas, raw binary IPC channels for terminal I/O.</td></tr>
-      </tbody>
-    </table></div>
-  </div>
-</section>
-
-<section id="security" aria-labelledby="h-sec">
-  <div class="wrap">
-    <h2 id="h-sec"><span class="num">02</span>Security</h2>
-    <p>The vault file can be copied to an untrusted disk without exposing its contents. The password is the only secret; it is never stored. A random 256-bit data key encrypts every record and is itself stored only in wrapped form.</p>
-
-    <figure class="figure">
-      <svg viewBox="0 0 960 300" role="img" aria-labelledby="fig3-t fig3-d">
-        <title id="fig3-t">Key hierarchy</title>
-        <desc id="fig3-d">The password is stretched with Argon2id into a key-encryption key, which unwraps the random data key with XChaCha20-Poly1305. The data key encrypts every record with its own nonce and associated data bound to the table and record id.</desc>
-        <defs>
-          <marker id="kh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="d-arrow"/></marker>
-        </defs>
-        <rect class="d-box" x="20" y="30" width="164" height="96"/>
-        <text class="d-h" x="102" y="60" text-anchor="middle">PASSWORD</text>
-        <text class="d-m" x="102" y="82" text-anchor="middle">SecretString</text>
-        <text class="d-m" x="102" y="100" text-anchor="middle">never stored</text>
-        <rect class="d-box" x="209" y="30" width="164" height="96"/>
-        <text class="d-h" x="291" y="60" text-anchor="middle">ARGON2ID</text>
-        <text class="d-m" x="291" y="82" text-anchor="middle">m=64MiB t=3 p=4</text>
-        <text class="d-m" x="291" y="100" text-anchor="middle">salt 32 bytes</text>
-        <rect class="d-box" x="398" y="30" width="164" height="96"/>
-        <text class="d-h" x="480" y="60" text-anchor="middle">KEK 256-bit</text>
-        <text class="d-m" x="480" y="82" text-anchor="middle">derived on unlock</text>
-        <text class="d-m" x="480" y="100" text-anchor="middle">zeroized after use</text>
-        <rect class="d-box" x="587" y="30" width="164" height="96"/>
-        <text class="d-h" x="669" y="60" text-anchor="middle">UNWRAP</text>
-        <text class="d-m" x="669" y="82" text-anchor="middle">XChaCha20-Poly1305</text>
-        <text class="d-m" x="669" y="100" text-anchor="middle">AAD hdr[0..81]</text>
-        <rect class="d-box hot" x="776" y="30" width="164" height="96"/>
-        <text class="d-h hot" x="858" y="60" text-anchor="middle">DEK 256-bit</text>
-        <text class="d-m" x="858" y="82" text-anchor="middle">random, wrapped</text>
-        <text class="d-m" x="858" y="100" text-anchor="middle">dropped on lock</text>
-        <line class="d-line" x1="186" y1="78" x2="205" y2="78" marker-end="url(#kh)"/>
-        <line class="d-line" x1="375" y1="78" x2="394" y2="78" marker-end="url(#kh)"/>
-        <line class="d-line" x1="564" y1="78" x2="583" y2="78" marker-end="url(#kh)"/>
-        <line class="d-line" x1="753" y1="78" x2="772" y2="78" marker-end="url(#kh)"/>
-        <path class="d-line" d="M858 126V160H160V186" marker-end="url(#kh)"/>
-        <path class="d-line" d="M480 160V186" marker-end="url(#kh)"/>
-        <path class="d-line" d="M800 160V186" marker-end="url(#kh)"/>
-        <text class="d-m" x="560" y="152">one AEAD operation per record write</text>
-        <rect class="d-box" x="20" y="190" width="280" height="86"/>
-        <text class="d-h" x="160" y="216" text-anchor="middle">hosts / &lt;id&gt;</text>
-        <text class="d-m" x="160" y="238" text-anchor="middle">nonce(24) ‖ ciphertext ‖ tag(16)</text>
-        <text class="d-m" x="160" y="258" text-anchor="middle">AAD domain ‖ table ‖ id</text>
-        <rect class="d-box" x="340" y="190" width="280" height="86"/>
-        <text class="d-h" x="480" y="216" text-anchor="middle">identities / &lt;id&gt;</text>
-        <text class="d-m" x="480" y="238" text-anchor="middle">private keys, passphrases</text>
-        <text class="d-m" x="480" y="258" text-anchor="middle">same scheme, own table</text>
-        <rect class="d-box" x="660" y="190" width="280" height="86"/>
-        <text class="d-h" x="800" y="216" text-anchor="middle">other tables</text>
-        <text class="d-m" x="800" y="238" text-anchor="middle">tunnels, snippets, known hosts,</text>
-        <text class="d-m" x="800" y="258" text-anchor="middle">sync targets, tombstones</text>
-      </svg>
-      <figcaption>Key hierarchy. Changing the password rewraps the data key; records are not re-encrypted.</figcaption>
-    </figure>
-
-    <h3>Cryptography</h3>
-    <div class="table"><table>
-      <thead><tr><th>Item</th><th>Specification</th></tr></thead>
-      <tbody>
-        <tr><td>Password KDF</td><td>Argon2id, version 0x13, m = 65536 KiB, t = 3, p = 4, 32-byte output, 32-byte salt from the OS CSPRNG. Parameters are stored in the header and bounded on read (m ≤ 2 GiB, t ≤ 64, p ≤ 64) so a crafted file cannot exhaust memory.</td></tr>
-        <tr><td>Key wrap</td><td>XChaCha20-Poly1305 over the 32-byte data key, 24-byte random nonce, associated data = header bytes 0..81.</td></tr>
-        <tr><td>Records</td><td>XChaCha20-Poly1305, fresh 24-byte random nonce per write. Associated data = <code>"citadel.record.v1" ‖ 0x00 ‖ table ‖ 0x00 ‖ id</code>. After decryption the embedded id must equal the storage key, so ciphertexts cannot be moved between records or tables.</td></tr>
-        <tr><td>Serialization</td><td>MessagePack. Buffers are sized before encoding and encrypted in place so no reallocated plaintext copies are left on the heap.</td></tr>
-        <tr><td>Randomness</td><td><code>getrandom</code> (OS CSPRNG) for salts, nonces, data keys and record ids.</td></tr>
-        <tr><td>Storage</td><td>redb, ACID, crash-safe. The file is created with mode 0600 and a new parent directory with 0700 on Unix; redb holds an exclusive lock while the vault is open.</td></tr>
-      </tbody>
-    </table></div>
-
-    <h3>Memory</h3>
-    <ul>
-      <li>Passwords, private keys and passphrases are held in <code>secrecy</code> types; decrypted buffers and the derived keys are <code>Zeroizing</code>.</li>
-      <li>Argon2 runs in a caller-provided 64 MiB arena that is zeroized after derivation. The library's own allocator path frees that memory without clearing it.</li>
-      <li>The key-encryption key exists only for the duration of the unwrap. The data key lives only inside the cipher state, which zeroizes it when dropped.</li>
-      <li>Locking, manually or from the idle watchdog, drops the cipher state. Every operation on a locked vault fails until the next unlock.</li>
-    </ul>
-
-    <h3>What is visible without the password</h3>
-    <div class="table"><table>
-      <thead><tr><th>Visible</th><th>Not visible</th></tr></thead>
-      <tbody>
-        <tr><td>KDF parameters, salt, header epoch</td><td>Host names, users, ports, labels, tags</td></tr>
-        <tr><td>Random 128-bit record ids</td><td>Private keys, passphrases, passwords</td></tr>
-        <tr><td>Record count per kind, ciphertext sizes</td><td>Tunnel definitions, known host keys, sync credentials</td></tr>
-      </tbody>
-    </table></div>
-
-    <h3>SSH</h3>
-    <div class="table"><table>
-      <thead><tr><th>Item</th><th>Behaviour</th></tr></thead>
-      <tbody>
-        <tr><td>Implementation</td><td>russh 0.64 with the ring crypto backend. No OpenSSL and no libssh2. ring itself contains C and assembly; there are no other native cryptographic dependencies.</td></tr>
-        <tr><td>Host keys</td><td>Checked before authentication on every hop. The bundled verifier reads OpenSSH <code>known_hosts</code> in strict or trust-on-first-use mode and reports changed keys with the offending line. Trusted keys can also be stored as encrypted vault records.</td></tr>
-        <tr><td>Identities</td><td>Each host names one identity: an embedded key, a key held by an external agent (matched by SHA-256 fingerprint), a password, or keyboard-interactive. Only that identity is offered to the server.</td></tr>
-        <tr><td>Agent forwarding</td><td>Citadel answers the forwarded agent channel itself. <code>REQUEST_IDENTITIES</code> returns only the host's assigned key; <code>SIGN_REQUEST</code> is honoured only for that key's blob; every other message gets <code>FAILURE</code>. Hosts that authenticate with a password expose an empty agent.</td></tr>
-        <tr><td>RSA</td><td><code>rsa-sha2-512</code> or <code>rsa-sha2-256</code> as negotiated; <code>rsa-sha2-512</code> when the server does not advertise <code>server-sig-algs</code>.</td></tr>
-        <tr><td>Imports</td><td>Records from an imported <code>.ctdl</code> are validated like hand-entered ones. Agent forwarding and tunnel autostart are switched off and trusted host keys are dropped, so a bundle from someone else cannot open connections or pin host keys on unlock.</td></tr>
-        <tr><td>Unlock</td><td>Attempts are serialised; each consecutive failure doubles the delay, from 0.5 s up to 30 s.</td></tr>
-        <tr><td>Audit</td><td>A local report grades the vault from A to F and lists DSA and short RSA keys, password logins, agent forwarding, tunnels bound beyond loopback, plaintext sync endpoints, disabled auto-lock and below-target KDF cost.</td></tr>
-      </tbody>
-    </table></div>
-
-    <div class="note warn">
-      <p><strong>Limits.</strong> A process that can read Citadel's memory while the vault is unlocked can read its keys. Zeroization is best-effort: moved structs may leave stack copies, and third-party buffers (zstd during export, the SSH stack, the webview) are outside Citadel's control. Memory is not locked against swap. See <a href="https://github.com/sepehrmohseni/citadel/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+      <figure>
+        <div class="frame ticks shot">
+          <div class="frame-h">lock screen<span class="meta">real build</span></div>
+          <a href="assets/shot-vault.webp"><img src="assets/shot-vault.webp" width="600" height="736" loading="lazy" decoding="async" alt="Citadel's lock screen: the block-letter wordmark, a passphrase field, a create vault button, and a notice reading found 1 encrypted backup, newest just now, with restore newest and choose file buttons. Footer lists argon2id m=64MiB t=3 p=4 and xchacha20-poly1305."></a>
+        </div>
+        <figcaption class="cap"><span class="fig">fig.01</span><span>The database is gone, the snapshots are not. The lock screen offers the newest one.</span></figcaption>
+      </figure>
     </div>
   </div>
 </section>
 
-<section id="tunnels" aria-labelledby="h-tun">
+<section class="sec" id="network" aria-labelledby="h-network">
   <div class="wrap">
-    <h2 id="h-tun"><span class="num">03</span>Tunnels and sessions</h2>
-    <div class="grid-2">
-      <div class="card">
-        <h4>Link supervisor</h4>
-        <ul>
-          <li>A link supervises one SSH connection; terminals, tunnels, SFTP and telemetry can share it.</li>
-          <li>Keepalive heartbeat at the host's interval (default 15 s). Three unanswered probes end the session.</li>
-          <li>Redial with exponential backoff: 500 ms base, doubling, 30 s cap, ±20 % jitter. The attempt counter resets after 60 s of uptime.</li>
-          <li>The dial function runs on every attempt, so credentials are resolved fresh each time. If they cannot be resolved, for example because the vault is locked, the attempt fails and backoff continues.</li>
+    <p class="sec-label"><span class="num">02</span>network<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>2</kbd></span></p>
+    <h2 id="h-network">Bastion chains, and tunnels that come back on their own.</h2>
+    <p class="lede">Jump chains are built in memory: each hop is a full SSH session carried inside a <code>direct-tcpip</code> channel of the previous one. Nothing is spawned and no <code>ProxyCommand</code> is involved. Every hop verifies its own host key and authenticates on its own.</p>
+
+    <div class="chain" role="group" aria-label="A two-hop jump chain with a local forward">
+      <div class="frame ticks hop">
+        <div class="hop-k">this machine</div>
+        <div class="hop-n">citadel</div>
+        <div class="hop-d"><span class="sq amber"></span>listener 127.0.0.1:5432</div>
+        <div class="hop-d"><span class="sq amber"></span>bound across reconnects</div>
+      </div>
+      <div class="link" aria-hidden="true"><span class="link-l">direct-tcpip</span><span class="wire"><i></i></span></div>
+      <div class="frame ticks hop">
+        <div class="hop-k">hop 1</div>
+        <div class="hop-n">bastion.example.net</div>
+        <div class="hop-d"><span class="chk ok" aria-hidden="true"><i></i></span>host key verified</div>
+        <div class="hop-d"><span class="chk ok" aria-hidden="true"><i></i></span>ed25519 key accepted</div>
+      </div>
+      <div class="link" aria-hidden="true"><span class="link-l">direct-tcpip</span><span class="wire b"><i></i></span></div>
+      <div class="frame ticks hop">
+        <div class="hop-k">hop 2</div>
+        <div class="hop-n">db-1.internal</div>
+        <div class="hop-d"><span class="chk ok" aria-hidden="true"><i></i></span>host key verified</div>
+        <div class="hop-d"><span class="chk ok" aria-hidden="true"><i></i></span>key, then one-time code</div>
+      </div>
+    </div>
+    <p class="chain-foot"><code>-L 127.0.0.1:5432 -&gt; db-1.internal:5432</code><span>the local listener stays up while the chain underneath redials</span></p>
+
+    <div class="cols cols-6-6">
+      <div>
+        <p class="sub-h">self-healing</p>
+        <ul class="points">
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Supervised links.</b> Keepalive heartbeats at a per-host interval, 15 s by default. Three unanswered probes end the session.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Backoff with jitter.</b> Redials start at 500 ms and double up to 30 s, ±20 %. The counter resets after 60 s of uptime.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Forwards survive.</b> Local <code>-L</code> and SOCKS5 <code>-D</code> listeners stay bound through reconnects. Remote <code>-R</code> forwards are registered again on every new session.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>A scoped agent.</b> Agent forwarding exposes only the key assigned to that host, never the rest of your agent.</span></li>
         </ul>
       </div>
-      <div class="card">
-        <h4>Forwarding</h4>
-        <ul>
-          <li><code>-L</code> and <code>-D</code> listeners are bound once and stay bound across reconnects. Connections that arrive during an outage wait up to 20 s for the link.</li>
-          <li><code>-R</code> forwards are re-requested on every new session and cancelled when the tunnel stops.</li>
-          <li>Dynamic forwarding implements SOCKS5 <code>CONNECT</code> without authentication, for IPv4, IPv6 and domain names. Bind it to loopback.</li>
-          <li>Per-tunnel counters: active and accepted connections, failures, bytes in each direction.</li>
+      <div class="stack">
+        <div class="frame ticks">
+          <div class="frame-h">link<span class="meta">bastion.example.net</span></div>
+          <ol class="log">
+            <li><span class="lvl warn">WARN</span><span class="ts">14:02:11</span><span class="msg">3 keepalives unanswered · link down</span></li>
+            <li><span class="lvl info">INFO</span><span class="ts">14:02:11</span><span class="msg">listener 127.0.0.1:5432 stays bound</span></li>
+            <li><span class="lvl info">INFO</span><span class="ts">14:02:11</span><span class="msg">redial in 0.5 s</span></li>
+            <li><span class="lvl info">INFO</span><span class="ts">14:02:12</span><span class="msg">redial in 1.1 s</span></li>
+            <li><span class="lvl ok">OK</span><span class="ts">14:02:14</span><span class="msg">chain up · <b>2 host keys verified</b></span></li>
+            <li><span class="lvl ok">OK</span><span class="ts">14:02:14</span><span class="msg">remote forwards registered again</span></li>
+          </ol>
+        </div>
+        <div>
+          <p class="sub-h">remote ports</p>
+          <div class="toast-demo">
+            <span class="lvl info">INFO</span><span class="ts">14:02:31</span><span>port 5173 opened on web-1</span>
+            <span class="acts"><span class="btn small primary">forward and open</span><span class="btn small">ignore</span></span>
+          </div>
+          <div class="toast-demo ok">
+            <span class="lvl ok">OK</span><span class="ts">14:02:32</span><span>127.0.0.1:5173 -&gt; web-1:5173 · opened</span>
+          </div>
+          <p class="note">Start a dev server on a remote host and Citadel notices the new listening port. One click forwards it and opens it locally; no <code>-L</code> to remember.</p>
+        </div>
+      </div>
+    </div>
+
+    <figure class="wide-shot">
+      <div class="frame ticks shot">
+        <div class="frame-h">tunnels<span class="meta">graph view · real build</span></div>
+        <a href="assets/shot-tunnels.webp"><img src="assets/shot-tunnels.webp" width="1360" height="860" loading="lazy" decoding="async" alt="Citadel's tunnels page in graph mode: a local listener on 127.0.0.1:29234 connects through the host e2e-sshd to the destination 127.0.0.1:2299. The status line at the bottom reads vault open, links 1/1, tunnels 1, rtt under 1 ms."></a>
+      </div>
+      <figcaption class="cap"><span class="fig">fig.02</span><span>Tunnels in graph mode: listener, the host it runs through, destination. Captured by the end-to-end suite against a real OpenSSH sshd.</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="sec" id="fleet" aria-labelledby="h-fleet">
+  <div class="wrap">
+    <p class="sec-label"><span class="num">03</span>fleet<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>3</kbd></span></p>
+    <div class="cols cols-5-7 mid" style="margin-top:0">
+      <div>
+        <h2 id="h-fleet">One command, every host, one answer.</h2>
+        <p class="lede">Fleet run sends a command to the hosts you pick, in parallel, and reports back as each one finishes.</p>
+        <ul class="points" style="margin-top:32px">
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Per-host results.</b> Exit code and timing for every host.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>Grouped output.</b> Identical output is printed once, with the hosts that produced it. The odd one out is the only thing left to read.</span></li>
+          <li><span class="chk" aria-hidden="true"><i></i></span><span><b>No new trust.</b> Each host connects with its own identity, route and host key check.</span></li>
         </ul>
       </div>
-      <div class="card">
-        <h4>Jump chains</h4>
-        <ul>
-          <li>Each hop is a full SSH session carried inside a <code>direct-tcpip</code> channel of the previous one. Nothing is spawned and no <code>ProxyCommand</code> is used.</li>
-          <li>Host keys and credentials are checked per hop.</li>
-          <li>Losing a bastion ends every session tunnelled through it; disconnecting a chained session also disconnects its bastions.</li>
-        </ul>
+      <div class="frame ticks fleet-frame">
+        <div class="frame-h">fleet run<span class="meta">6 hosts · @prod</span></div>
+        <div class="frame-b">
+          <div><span class="t-amber t-b">›</span> <span class="t-fg">uname -r</span></div>
+          <div class="fl" style="margin-top:10px"><span class="t-fg">web-1</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">38 ms</span><span></span></div>
+          <div class="fl"><span class="t-fg">web-2</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">41 ms</span><span></span></div>
+          <div class="fl"><span class="t-fg">web-3</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">40 ms</span><span></span></div>
+          <div class="fl"><span class="t-fg">api-1</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">47 ms</span><span></span></div>
+          <div class="fl"><span class="t-fg">api-2</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">52 ms</span><span></span></div>
+          <div class="fl"><span class="t-fg">db-1</span><span class="sq ok"></span><span class="x0">exit 0</span><span class="t-mute">63 ms</span><span></span></div>
+          <div class="grp"><span class="out">6.8.0-45-generic</span><span class="rule"></span><span class="cnt">4 hosts</span></div>
+          <div class="hosts">web-1  web-2  web-3  api-1</div>
+          <div class="grp"><span class="out">6.8.0-40-generic</span><span class="rule"></span><span class="cnt">2 hosts</span></div>
+          <div class="hosts">api-2  db-1</div>
+          <div class="sum"><span class="lvl ok">OK</span> <span class="ts">14:02:11</span>  6 of 6 exited 0 · slowest 63 ms</div>
+        </div>
       </div>
-      <div class="card">
-        <h4>SFTP</h4>
-        <ul>
-          <li>32 KiB requests with 64 in flight per transfer.</li>
-          <li>Downloads write to <code>&lt;name&gt;.citadel-part</code>, fsync, then rename.</li>
-          <li>Uploads and edits write a hidden sibling opened with <code>O_EXCL</code>, preserve the file mode, use <code>fsync@openssh.com</code> when offered, and replace the target with <code>posix-rename@openssh.com</code>.</li>
-          <li>Without <code>posix-rename</code>, the fallback is remove-then-rename and is not atomic.</li>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="keyboard" aria-labelledby="h-keyboard">
+  <div class="wrap">
+    <p class="sec-label"><span class="num">04</span>keyboard<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>4</kbd></span></p>
+    <h2 id="h-keyboard">Keyboard first, on every keyboard.</h2>
+    <p class="lede"><code>g</code>-leader navigation, <code>j</code>/<code>k</code> selection and a command palette that quick-connects to <code>user@host:port</code>. Paste a whole <code>ssh -p 2222 user@host</code> into the palette or the host form and the connection fills itself in. A global hotkey summons the window from anywhere.</p>
+
+    <div class="bento">
+      <div class="frame ticks keys">
+        <div class="frame-h">keys<span class="meta">defaults, all rebindable</span></div>
+        <div class="keyrows">
+          <p class="grp-t">anywhere</p>
+          <ul>
+            <li>command palette<span class="kbds"><kbd>Ctrl</kbd><kbd>K</kbd></span></li>
+            <li>go to hosts<span class="kbds"><kbd>g</kbd><kbd>h</kbd></span></li>
+            <li>switch tab<span class="kbds"><kbd>Ctrl</kbd><kbd>1-9</kbd></span></li>
+            <li>next tab<span class="kbds"><kbd>Ctrl</kbd><kbd>Tab</kbd></span></li>
+          </ul>
+          <p class="grp-t">terminal</p>
+          <ul>
+            <li>find in scrollback<span class="kbds"><kbd>Ctrl+Shift</kbd><kbd>F</kbd></span></li>
+            <li>copy selection<span class="kbds"><kbd>Ctrl+Shift</kbd><kbd>C</kbd></span></li>
+            <li>paste, guarded<span class="kbds"><kbd>Ctrl+Shift</kbd><kbd>V</kbd></span></li>
+            <li>broadcast input<span class="kbds"><kbd>Ctrl+Shift</kbd><kbd>B</kbd></span></li>
+            <li>record session<span class="kbds"><kbd>Ctrl+Shift</kbd><kbd>R</kbd></span></li>
+          </ul>
+          <p class="grp-t">hosts</p>
+          <ul>
+            <li>move selection<span class="kbds"><kbd>j</kbd><kbd>k</kbd></span></li>
+            <li>connect<span class="kbds"><kbd>Enter</kbd></span></li>
+            <li>open files<span class="kbds"><kbd>f</kbd></span></li>
+            <li>import ~/.ssh/config<span class="kbds"><kbd>i</kbd></span></li>
+          </ul>
+        </div>
+        <p class="keys-f">Split panes and the global summon hotkey are bindings too. Change any of them in settings.</p>
+      </div>
+
+      <div class="frame ticks">
+        <div class="frame-h">split panes<span class="meta">restored on next launch</span></div>
+        <div class="panes" aria-hidden="true">
+          <div class="pane big on"><div class="pane-h"><span class="sq ok"></span>1 deploy@web-1</div><div class="pane-b"><span class="t-user">deploy@web-1</span>:<span class="t-path">~</span>$ tail -f app.log
+<span class="t-dim">14:01:44</span> GET /health 200 2ms
+<span class="t-dim">14:01:45</span> GET /api/hosts 200 9ms
+<span class="t-dim">14:01:47</span> POST /api/run 202 4ms
+<span class="t-dim">14:01:47</span> GET /health 200 1ms
+<span class="t-dim">14:01:49</span> GET /api/hosts 200 8ms</div></div>
+          <div class="pane"><div class="pane-h"><span class="sq ok"></span>2 ops@db-1</div><div class="pane-b"><span class="t-user">ops@db-1</span>:<span class="t-path">~</span>$ psql -tc 'select 1'
+        1</div></div>
+          <div class="pane"><div class="pane-h"><span class="sq ok"></span>3 ops@edge-1</div><div class="pane-b"><span class="t-user">ops@edge-1</span>:<span class="t-path">~</span>$ uptime
+ 14:02:11 up 41 days</div></div>
+        </div>
+        <div class="restore"><span class="lvl ok">OK</span><span class="ts">09:00:04</span><span>3 panes restored · sessions reconnecting</span></div>
+      </div>
+
+      <figure class="frame ticks">
+        <div class="frame-h">layouts<span class="meta">resolved by physical key</span></div>
+        <div class="shot"><a href="assets/shot-persian.webp"><img src="assets/shot-persian.webp" width="624" height="186" loading="lazy" decoding="async" alt="A Citadel terminal tab named intl with Persian typed on a Persian keyboard layout: سلام دنیا followed by hello and Persian digits, then ls -la on a folder named پروژه, rendered shaped and right to left."></a></div>
+        <figcaption class="rtl-demo">
+          <p class="note" style="margin-top:0">Shortcuts, <code>Ctrl</code> control characters and <code>Alt</code> meta keys work with a non-Latin layout active. Persian, Arabic and Hebrew runs render shaped and right to left in the terminal and in every input field.</p>
+          <div class="layouts" aria-label="Layouts covered"><span>us</span><span class="on">fa</span><span>ar</span><span>he</span><span>ru</span><span>el</span></div>
+        </figcaption>
+      </figure>
+    </div>
+    <figure class="wide-shot">
+      <div class="frame ticks shot">
+        <div class="frame-h">hosts<span class="meta">real build</span></div>
+        <a href="assets/shot-hosts.webp"><img src="assets/shot-hosts.webp" width="1360" height="372" loading="lazy" decoding="async" alt="Citadel's hosts list: a workspace named lab with the host e2e-sshd, address sep@127.0.0.1:2299, auth key:e2e-key, route direct and round trip under 1 ms, with keyboard hints for j, k, enter, f, t, e and n along the filter field."></a>
+      </div>
+      <figcaption class="cap"><span class="fig">fig.03</span><span>The host list: workspaces, auth, route and live round trip, with the keys for each action next to the filter.</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="sec" id="keys" aria-labelledby="h-keys">
+  <div class="wrap">
+    <p class="sec-label"><span class="num">05</span>keys<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>5</kbd></span></p>
+    <h2 id="h-keys">SSH keys that other clients reject.</h2>
+    <p class="lede">Keys arrive mangled: pasted from a chat, saved on Windows, exported from PuTTY. Citadel repairs indentation, CRLF line endings, byte-order marks and collapsed newlines before parsing, and reads OpenSSH, PuTTY <code>.ppk</code>, PKCS#8 and PEM.</p>
+
+    <div class="diff">
+      <div class="frame ticks">
+        <div class="frame-h">as pasted<span class="meta">bom · indent · crlf</span></div>
+<pre aria-label="A private key as pasted, with a byte-order mark, two-space indentation and carriage returns on every line"><span class="bom">BOM</span><span class="sp">··</span>-----BEGIN OPENSSH PRIVATE KEY-----<span class="bad">^M</span>
+<span class="sp">··</span>b3BlbnNzaC1rZXktdjEAAAAABG5vbmUA…<span class="bad">^M</span>
+<span class="sp">··</span>AAAAAAAAAAEAAAAzAAAAC3NzaC1lZDI1…<span class="bad">^M</span>
+<span class="sp">··</span>-----END OPENSSH PRIVATE KEY-----<span class="bad">^M</span></pre>
+      </div>
+      <div class="frame ticks green">
+        <div class="frame-h">as parsed<span class="meta">openssh · ed25519</span></div>
+<pre aria-label="The same key after repair, followed by a parsed confirmation">-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUA…
+AAAAAAAAAAEAAAAzAAAAC3NzaC1lZDI1…
+-----END OPENSSH PRIVATE KEY-----
+<span class="lvl ok">OK</span> <span class="ts">14:02:11</span> parsed · ssh-ed25519</pre>
+      </div>
+    </div>
+
+    <div class="cols cols-6-6">
+      <div class="frame ticks">
+        <div class="frame-h">negotiation<span class="meta">what happens when</span></div>
+        <table class="neg">
+          <thead><tr><th scope="col">situation</th><th scope="col">citadel</th></tr></thead>
+          <tbody>
+            <tr><td>Server advertises no signature algorithms</td><td><code>rsa-sha2-512</code>, then <code>rsa-sha2-256</code>, then <code>ssh-rsa</code></td></tr>
+            <tr><td>Key plus one-time code</td><td>Public key first, then keyboard-interactive for the code</td></tr>
+            <tr><td>Password accepted only over keyboard-interactive</td><td>The saved password answers the prompt</td></tr>
+            <tr><td>OpenSSH certificate held by the agent</td><td>Offered like any other identity</td></tr>
+            <tr><td>Host uses the system key source</td><td>Agent, then <code>~/.ssh/id_ed25519</code>, <code>id_ecdsa</code>, <code>id_rsa</code>, as <code>ssh</code> does. Never copied into the vault</td></tr>
+            <tr><td>Appliance offers only SHA-1 key exchange, CBC or <code>hmac-sha1</code></td><td>The error names them and offers a per-host legacy switch. Off by default, never negotiated silently</td></tr>
+            <tr><td>Authentication fails</td><td>The error states what was offered and which methods the server accepts</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figure>
+        <div class="frame ticks shot">
+          <div class="frame-h">new host<span class="meta">real build</span></div>
+          <a href="assets/shot-hostform.webp"><img src="assets/shot-hostform.webp" width="880" height="670" loading="lazy" decoding="async" alt="Citadel's new host dialog: a field to paste an ssh command, hostname 127.0.0.1, port 2299, user sep, label e2e-sshd, authentication set to key with the options system, password and interactive, and the identity e2e-key ssh-ed25519 with the note only this key is offered to the server."></a>
+        </div>
+        <figcaption class="cap"><span class="fig">fig.04</span><span>Paste an ssh command, pick key, system, password or interactive. Only the selected identity is offered to the server.</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="limits" aria-labelledby="h-limits">
+  <div class="wrap">
+    <p class="sec-label"><span class="num">06</span>limits<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>6</kbd></span></p>
+    <h2 id="h-limits">Bounded, even when the output is not.</h2>
+    <p class="lede">Terminal output is acknowledged after it is rendered, and at most 4 MiB is in flight per terminal. A runaway command cannot flood the interface, and <code>Ctrl+C</code> takes effect immediately.</p>
+
+    <div class="cols cols-5-7">
+      <div class="frame ticks">
+        <div class="frame-h">flow control<span class="meta">per terminal</span></div>
+        <div class="gauge" aria-hidden="true">
+          <div class="gauge-h"><span>in flight</span><b>cap 4 MiB</b></div>
+          <div class="gbar"><i></i></div>
+          <div class="gauge-f"><span>0</span><span>2 MiB</span><span>4 MiB</span></div>
+        </div>
+        <p class="flow"><span>remote</span><span class="ar">-&gt;</span><span>render</span><span class="ar">-&gt;</span><span>acknowledge</span><span class="ar">-&gt;</span><span>next chunk</span></p>
+      </div>
+      <div>
+        <p class="sub-h">when nobody is looking</p>
+        <div class="ruler">
+          <div><b>0 s</b><span class="when">window hidden</span><span class="what">All animation pauses. Hidden pages skip re-rendering.</span></div>
+          <div><b>10 s</b><span class="when">terminal idle</span><span class="what">The cursor stops blinking.</span></div>
+          <div><b>30 s</b><span class="when">tab in background</span><span class="what">The tab releases its GPU context.</span></div>
+        </div>
+        <p class="note">Memory target: under 25 MB resident for the Rust core process. The system webview runs separately and adds its own.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="security" aria-labelledby="h-security">
+  <div class="wrap">
+    <p class="sec-label"><span class="num">07</span>security<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>7</kbd></span></p>
+    <h2 id="h-security">Graded locally. Specified in public.</h2>
+    <p class="lede">A local audit scores the vault from A to F and says what to fix. Nothing leaves the machine. The cryptography is written down below, and the threat model with its known limitations is in <a href="https://github.com/sepehrmohseni/citadel/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+    <div class="cols cols-7-5">
+      <figure>
+        <div class="frame ticks shot">
+          <div class="frame-h">audit<span class="meta">real build</span></div>
+          <a href="assets/shot-audit.webp"><img src="assets/shot-audit.webp" width="1164" height="550" loading="lazy" decoding="async" alt="Citadel's audit page: a posture card with a large green A, a score of 100 out of 100, 5 items checked and zero findings at every severity, next to a panel reading nothing to report."></a>
+        </div>
+        <figcaption class="cap"><span class="fig">fig.05</span><span>Audit with nothing to report. Each finding carries a severity and a fix link to the host, key or tunnel concerned.</span></figcaption>
+      </figure>
+      <div>
+        <p class="sub-h">grade</p>
+        <div class="grades" aria-label="Grades A to F, A highlighted"><span class="a">A</span><span>B</span><span>C</span><span>D</span><span>F</span></div>
+        <p class="sub-h">checks</p>
+        <ul class="checks">
+          <li><span class="chk ok" aria-hidden="true"><i></i></span>weak, short RSA or DSA keys</li>
+          <li><span class="chk ok" aria-hidden="true"><i></i></span>password logins</li>
+          <li><span class="chk ok" aria-hidden="true"><i></i></span>agent forwarding</li>
+          <li><span class="chk ok" aria-hidden="true"><i></i></span>tunnels exposed beyond loopback</li>
+          <li><span class="chk ok" aria-hidden="true"><i></i></span>plaintext sync endpoints</li>
+          <li><span class="chk ok" aria-hidden="true"><i></i></span>auto-lock disabled</li>
+          <li><span class="chk ok" aria-hidden="true"><i></i></span>key derivation below target cost</li>
         </ul>
       </div>
     </div>
 
-    <h3>Telemetry</h3>
-    <p>Telemetry opens one exec channel on an existing session and reads <code>/proc/stat</code>, <code>/proc/meminfo</code>, <code>/proc/net/dev</code>, <code>df</code> output and, when the socket is readable by the login user, container status from the Docker Engine API on <code>/var/run/docker.sock</code>. Nothing is installed or left running on the host after the channel closes.</p>
-
-    <h3>Latency, broadcast and recording</h3>
-    <p>Each connected link sends a <code>keepalive@openssh.com</code> request every five seconds and reports the round trip, shown per host and in the status line. Input can be broadcast to a chosen group of terminals. Sessions can be recorded to asciicast v2; recordings contain output and resize events only, never keystrokes.</p>
-
-    <h3>~/.ssh/config</h3>
-    <p>Hosts can be imported from and written back to <code>~/.ssh/config</code>. Edits preserve comments, ordering, indentation and every directive Citadel does not manage. Agent sockets are discovered from <code>SSH_AUTH_SOCK</code>, the 1Password and Bitwarden default locations, and the Windows OpenSSH agent named pipe.</p>
-  </div>
-</section>
-
-<section id="sync" aria-labelledby="h-sync">
-  <div class="wrap">
-    <h2 id="h-sync"><span class="num">04</span>Sync</h2>
-    <p>Sync is off until a target is configured. Citadel operates no servers; the storage provider only ever receives a sealed <code>.ctdl</code> blob.</p>
-    <div class="table"><table>
-      <thead><tr><th>Backend</th><th>Transport</th><th>Concurrency control</th></tr></thead>
-      <tbody>
-        <tr><td>S3-compatible</td><td>HTTPS, SigV4, path-style or virtual-host addressing</td><td>ETag, conditional <code>If-Match</code> on write</td></tr>
-        <tr><td>WebDAV</td><td>HTTPS, basic authentication</td><td>ETag, conditional <code>If-Match</code> on write</td></tr>
-        <tr><td>Git</td><td>The system <code>git</code> and its credential setup</td><td>Rejected push triggers fetch, merge, retry</td></tr>
-      </tbody>
-    </table></div>
-    <ol>
-      <li>Pull the remote blob. If it is sealed under the local data key, decrypt it directly. If not, ask for the password that sealed it, then rekey the local vault to that data key so every device converges on one key.</li>
-      <li>Merge record by record. The newer timestamp wins; deletions are tombstones and propagate like any other record.</li>
-      <li>Seal and push with the observed ETag. If another device wrote first, repeat from step 1.</li>
-      <li>A password change bumps the header epoch. Devices that pull a newer header with the same data key adopt it, so the new password applies everywhere.</li>
-    </ol>
-    <p class="muted">Credentials for sync targets are stored as encrypted vault records and replicate with the vault.</p>
-  </div>
-</section>
-
-<section id="format" aria-labelledby="h-fmt">
-  <div class="wrap">
-    <h2 id="h-fmt"><span class="num">05</span>The .ctdl container</h2>
-    <p>Exports, imports and sync blobs share one format. All integers are little-endian. A file exported with a separate password carries a fresh data key wrapped by that password; a sync blob carries the vault's own wrapped key.</p>
-    <div class="bytes" aria-hidden="true">
-      <span class="aad1"><b>0</b>magic</span>
-      <span class="aad1"><b>4</b>ver</span>
-      <span class="aad1"><b>5</b>m</span>
-      <span class="aad1"><b>9</b>t</span>
-      <span class="aad1"><b>13</b>p</span>
-      <span class="aad1"><b>17</b>epoch</span>
-      <span class="aad1"><b>25</b>salt</span>
-      <span class="aad1"><b>57</b>wrap nonce</span>
-      <span class="aad2"><b>81</b>wrapped key</span>
-      <span class="aad2"><b>129</b>nonce</span>
-      <span><b>153</b>ciphertext ‖ tag</span>
+    <div class="frame ticks spec-wrap">
+      <div class="frame-h">specification<span class="meta">SECURITY.md, README</span></div>
+      <table class="spec">
+        <caption class="vh">Cryptographic and protocol specification</caption>
+        <thead><tr><th scope="col">component</th><th scope="col">detail</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">KDF</th><td>Argon2id v1.3, m = 64 MiB, t = 3, p = 4, 32-byte random salt</td></tr>
+          <tr><th scope="row">AEAD</th><td>XChaCha20-Poly1305, 24-byte random nonce per write</td></tr>
+          <tr><th scope="row">Key hierarchy</th><td>Password-derived key wraps a random 256-bit data key; password changes rewrap without re-encrypting records</td></tr>
+          <tr><th scope="row">Record binding</th><td>AAD = <code>"citadel.record.v1" || 0x00 || table || 0x00 || id</code>; the decrypted id must match the storage key</td></tr>
+          <tr><th scope="row">Storage</th><td>redb (embedded, ACID, pure Rust), one table per record kind</td></tr>
+          <tr><th scope="row">Container</th><td><code>.ctdl</code>: every header byte authenticated as AAD, zstd-compressed MessagePack payload</td></tr>
+          <tr><th scope="row">Memory</th><td><code>secrecy</code> and <code>zeroize</code> on keys, passwords and decrypted buffers; Argon2 working memory is zeroized</td></tr>
+          <tr><th scope="row">SSH</th><td>russh 0.64 with the ring backend; no OpenSSL or libssh2</td></tr>
+          <tr><th scope="row">Host keys</th><td>Verified before authentication on every hop of a jump chain</td></tr>
+          <tr><th scope="row">Channel window</th><td>8 MiB per channel, 32 KiB maximum packet</td></tr>
+          <tr><th scope="row">SFTP</th><td>32 KiB requests, 64 in flight; <code>posix-rename@openssh.com</code> and <code>fsync@openssh.com</code> when offered</td></tr>
+          <tr><th scope="row">Reconnect</th><td>500 ms base delay, 30 s cap, ±20 % jitter; the attempt counter resets after 60 s of uptime</td></tr>
+          <tr><th scope="row">Heartbeat</th><td>Per-host keepalive interval, 15 s by default; three unanswered probes end the session</td></tr>
+          <tr><th scope="row">Unlock</th><td>Consecutive failed attempts back off exponentially, up to 30 s</td></tr>
+        </tbody>
+      </table>
     </div>
-    <div class="table"><table>
-      <thead><tr><th class="num">Offset</th><th class="num">Size</th><th>Field</th><th>Notes</th></tr></thead>
-      <tbody>
-        <tr><td class="num">0</td><td class="num">4</td><td>magic</td><td><code>CTDL</code></td></tr>
-        <tr><td class="num">4</td><td class="num">1</td><td>version</td><td><code>1</code>; other values are rejected</td></tr>
-        <tr><td class="num">5</td><td class="num">4</td><td>m_kib</td><td>Argon2id memory, u32</td></tr>
-        <tr><td class="num">9</td><td class="num">4</td><td>t</td><td>Argon2id iterations, u32</td></tr>
-        <tr><td class="num">13</td><td class="num">4</td><td>p</td><td>Argon2id lanes, u32</td></tr>
-        <tr><td class="num">17</td><td class="num">8</td><td>epoch</td><td>Header revision in Unix milliseconds, u64</td></tr>
-        <tr><td class="num">25</td><td class="num">32</td><td>salt</td><td>Argon2id salt</td></tr>
-        <tr><td class="num">57</td><td class="num">24</td><td>wrap nonce</td><td>XChaCha20 nonce for the key wrap</td></tr>
-        <tr><td class="num">81</td><td class="num">48</td><td>wrapped key</td><td>32-byte data key ‖ 16-byte tag; AAD = bytes 0..81</td></tr>
-        <tr><td class="num">129</td><td class="num">24</td><td>payload nonce</td><td>XChaCha20 nonce for the payload</td></tr>
-        <tr><td class="num">153</td><td class="num">n + 16</td><td>payload</td><td>Ciphertext ‖ 16-byte tag; AAD = bytes 0..153</td></tr>
-      </tbody>
-    </table></div>
-    <p>The decrypted payload is a u32 raw length followed by a single Zstandard frame. The frame decompresses to exactly that many bytes of MessagePack encoding a bundle <code>{ created_ms, entries }</code>, where each entry is a host, identity, tunnel, snippet, known host, sync target or tombstone. Entries are sorted by id. Declared lengths above 64 MiB are rejected before decompression, and trailing data after the frame is an error.</p>
-    <div class="table"><table>
-      <thead><tr><th>Failure</th><th>Reported as</th></tr></thead>
-      <tbody>
-        <tr><td>Wrong password, or a modified salt, KDF parameter, epoch, wrap nonce or wrapped key</td><td>wrong password (key unwrap fails)</td></tr>
-        <tr><td>Payload or its nonce modified</td><td>ciphertext failed authentication</td></tr>
-        <tr><td>File shorter than its fields</td><td>container truncated</td></tr>
-        <tr><td>First four bytes are not <code>CTDL</code></td><td>not a citadel container</td></tr>
-        <tr><td>Unknown version byte</td><td>unsupported container version</td></tr>
-      </tbody>
-    </table></div>
+    <p class="sec-f">
+      <a class="arrow-link" href="https://github.com/sepehrmohseni/citadel/blob/main/SECURITY.md">threat model and known limitations</a>
+      <a class="arrow-link" href="https://github.com/sepehrmohseni/citadel/security/advisories/new">report a vulnerability privately</a>
+      <span class="muted">via GitHub Security Advisories, not public issues</span>
+    </p>
   </div>
 </section>
 
-<section id="performance" aria-labelledby="h-perf">
+<section class="sec" id="more" aria-labelledby="h-more">
   <div class="wrap">
-    <h2 id="h-perf"><span class="num">06</span>Performance</h2>
-    <p>Measured with <code>scripts/bench.sh</code>, which runs the OpenSSH integration suite in release mode against an unprivileged <code>sshd</code> on loopback. Loopback figures measure CPU cost on both ends, not network throughput.</p>
-    <div class="table"><table>
-      <thead><tr><th>Operation</th><th class="num">Payload</th><th class="num">Mean</th><th class="num">Range</th><th class="num">Rate</th></tr></thead>
-      <tbody>
-        <tr><td>SFTP upload</td><td class="num">16 MiB</td><td class="num">134 ms</td><td class="num">123–151 ms</td><td class="num">106–130 MiB/s</td></tr>
-        <tr><td>SFTP download</td><td class="num">16 MiB</td><td class="num">64 ms</td><td class="num">56–72 ms</td><td class="num">221–286 MiB/s</td></tr>
-        <tr><td>Tunnel suite</td><td class="num">36 MiB</td><td class="num">282 ms</td><td class="num">240–340 ms</td><td class="num">n/a</td></tr>
-      </tbody>
-    </table></div>
-    <p class="muted">Five runs, 2026-10-23. Windows Subsystem for Linux 2 (kernel 6.6), Intel Core i7-13620H, OpenSSH 9.6p1 with its stock <code>sftp-server</code>. SFTP times include the remote fsync and the local file write. The tunnel figure is wall time for four concurrent 4 MiB echo streams through <code>-L</code>, 1 MiB through SOCKS5 and 1 MiB through <code>-R</code>, including <code>sshd</code> start-up and the handshake, with every byte compared on return.</p>
+    <p class="sec-label"><span class="num">08</span>more<span class="rule"></span><span class="hint" aria-hidden="true"><kbd>g</kbd><kbd>8</kbd></span></p>
+    <h2 id="h-more">Also in the box.</h2>
 
-    <h3>Memory</h3>
-    <p>The target is under 25 MB resident for the Rust core process. The system webview is not part of that figure: WebKitGTK and WebView2 run their own processes and WKWebView maps its own memory, and their footprint depends on the platform. Unlocking briefly allocates the 64 MiB Argon2 arena, which is cleared and freed as soon as the key is derived. The redb page cache is capped at 4 MiB.</p>
-
-    <h3>Compared with common alternatives</h3>
-    <div class="table"><table>
-      <thead><tr><th>Aspect</th><th>Citadel</th><th>Reference point</th></tr></thead>
-      <tbody>
-        <tr><td>UI runtime</td><td>Rust process plus the operating system's webview</td><td>Electron-based clients ship a Chromium and Node.js runtime inside each application</td></tr>
-        <tr><td>Sync</td><td>Optional, to storage you operate; no account</td><td>Clients with cloud-account sync route data through the vendor's service and require an account</td></tr>
-        <tr><td>Agent forwarding</td><td>Only the host's assigned key is visible to the remote side</td><td>OpenSSH <code>ForwardAgent</code> exposes every key in the agent unless destination constraints (<code>ssh-add -h</code>, OpenSSH 8.9+) are configured</td></tr>
-        <tr><td>Tunnel recovery</td><td>Listeners stay bound; the session redials with backoff</td><td>An OpenSSH forward ends with its session; a wrapper such as autossh restarts the process and rebinds</td></tr>
-        <tr><td>Export format</td><td>Documented on this page, byte by byte</td><td>Varies</td></tr>
-      </tbody>
-    </table></div>
-    <p class="muted">Termius, for example, ships an Electron desktop application and syncs through a Termius account. No claims are made here about other products' memory use or throughput.</p>
+    <div class="cols cols-6-6">
+      <dl class="index">
+        <div><dt>sftp</dt><dd>Pipelined transfers, 64 requests of 32 KiB in flight. Remote edits are atomic: written beside the target, synced, then renamed into place.</dd></div>
+        <div><dt>host metrics</dt><dd>CPU, memory, network, disks and containers from <code>/proc</code>, <code>df</code> and the Docker socket, over the session you already have. Nothing is installed on the host.</dd></div>
+        <div><dt>sync</dt><dd>Optional replication to S3-compatible storage, WebDAV or a Git repository you control, with ETag and If-Match concurrency and record-by-record merging. Off until you add a target.</dd></div>
+        <div><dt>~/.ssh/config</dt><dd>Lossless round trip: comments, order and directives Citadel does not manage survive. Native, 1Password and Bitwarden agents are discovered.</dd></div>
+        <div><dt>latency</dt><dd>Round trip per host from <code>keepalive@openssh.com</code> probes every five seconds, in the host list and the status line.</dd></div>
+        <div><dt>broadcast</dt><dd>Type into a chosen set of terminals at once.</dd></div>
+        <div><dt>recording</dt><dd>asciicast v2. Output and resizes only, never keystrokes.</dd></div>
+        <div><dt>identities</dt><dd>One identity per host. Only that key is offered, and only that key is visible through agent forwarding.</dd></div>
+      </dl>
+      <div class="stack">
+        <figure>
+          <div class="frame ticks shot">
+            <div class="frame-h">themes<span class="meta">six built in</span></div>
+            <a href="assets/shot-themes.webp"><img src="assets/shot-themes.webp" width="808" height="348" loading="lazy" decoding="async" alt="Six terminal theme previews: Sodium with warm neutrals and an amber cursor, Phosphor green, Amber CRT, Glacier in cold blues, Ember, and Paper, a light theme."></a>
+          </div>
+          <figcaption class="cap"><span class="fig">fig.06</span><span>Sodium, Phosphor, Amber CRT, Glacier, Ember and Paper.</span></figcaption>
+        </figure>
+        <div class="frame ticks">
+          <div class="frame-h">sync<span class="meta">two devices, illustrative</span></div>
+          <ol class="log">
+            <li><span class="lvl info">INFO</span><span class="ts">18:20:01</span><span class="msg">pull · sealed blob, same data key</span></li>
+            <li><span class="lvl ok">OK</span><span class="ts">18:20:01</span><span class="msg">merged 3 records · 1 tombstone</span></li>
+            <li><span class="lvl warn">WARN</span><span class="ts">18:20:02</span><span class="msg">If-Match failed · another device wrote first</span></li>
+            <li><span class="lvl ok">OK</span><span class="ts">18:20:02</span><span class="msg">pull, merge, push · <b>nothing overwritten</b></span></li>
+          </ol>
+          <p class="note frame-note">The provider only ever stores a sealed <code>.ctdl</code> blob. Sync credentials are stored as encrypted vault records.</p>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
-<section id="install" aria-labelledby="h-inst">
-  <div class="wrap">
-    <h2 id="h-inst"><span class="num">07</span>Install</h2>
-    <p>Prebuilt bundles are attached to each <a href="https://github.com/sepehrmohseni/citadel/releases">GitHub release</a> together with a <code>SHA256SUMS</code> file. Bundles are not code-signed yet.</p>
-    <div class="table"><table>
-      <thead><tr><th>Platform</th><th>Bundle</th><th>Notes</th></tr></thead>
-      <tbody>
-        <tr><td>Linux x86_64</td><td>AppImage, .deb</td><td>Requires WebKitGTK 4.1 (Ubuntu 22.04 or newer, Debian 12 or newer)</td></tr>
-        <tr><td>Windows x86_64</td><td>.msi</td><td>Uses the Microsoft Edge WebView2 runtime</td></tr>
-        <tr><td>macOS</td><td>.dmg (universal)</td><td>One binary for Apple silicon and Intel</td></tr>
-      </tbody>
-    </table></div>
-<pre><code><span class="prompt">$ </span>sha256sum --check --ignore-missing SHA256SUMS
-<span class="prompt">$ </span>chmod +x Citadel_*.AppImage &amp;&amp; ./Citadel_*.AppImage
-<span class="prompt">$ </span>sudo apt install ./Citadel_*.deb</code></pre>
-
-    <h3>From source</h3>
-    <p>Requires Rust 1.90 or newer, Node.js 20 or newer and pnpm 10. On Linux, install the WebKitGTK development packages first:</p>
-<pre><code>sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
-    libayatana-appindicator3-dev librsvg2-dev</code></pre>
-<pre><code>git clone https://github.com/sepehrmohseni/citadel
-cd citadel/app
-pnpm install
-pnpm tauri build</code></pre>
-    <p>The crates build without the webview packages:</p>
-<pre><code>cargo test -p citadel-vault -p citadel-ssh -p citadel-telemetry -p citadel-config -p citadel-sync</code></pre>
-    <p>To run the SSH suite against a real OpenSSH server, point it at <code>sshd</code> and <code>sftp-server</code>. The harness starts <code>sshd</code> as the current user on a random loopback port with generated keys:</p>
-<pre><code>CITADEL_SSHD=/usr/sbin/sshd \
-CITADEL_SFTP_SERVER=/usr/lib/openssh/sftp-server \
-cargo test -p citadel-ssh --test openssh</code></pre>
+<section class="closing" aria-labelledby="h-closing">
+  <div class="wrap closing-in">
+    <div>
+      <h2 id="h-closing">Pre-1.0, and honest about it.</h2>
+      <p>File formats are versioned and may change before 1.0. Every build must still open vaults written by format version 1, or CI fails. Linux, macOS and Windows bundles ship with each release, alongside a <code>SHA256SUMS</code> file.</p>
+    </div>
+    <div class="acts">
+      <a class="btn primary" href="#install">install</a>
+      <a class="btn" href="https://github.com/sepehrmohseni/citadel/releases">releases</a>
+      <a class="btn" href="https://github.com/sepehrmohseni/citadel">source</a>
+    </div>
   </div>
 </section>
 </main>
 
-<footer>
-  <div class="wrap bar">
-    <span>Citadel · MIT OR Apache-2.0</span>
-    <span><a href="https://github.com/sepehrmohseni/citadel">Source</a> · <a href="https://github.com/sepehrmohseni/citadel/blob/main/SECURITY.md">Security policy</a> · <a href="https://github.com/sepehrmohseni/citadel/releases">Releases</a></span>
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <svg class="crest-sm" viewBox="0 0 150 20" shape-rendering="crispEdges" role="img" aria-label="Citadel"><use href="#crest"/></svg>
+        <p>Local-first SSH, tunnels and an encrypted vault.</p>
+        <p class="by">built by <a href="https://sepehrmohseni.com">Sepehr Mohseni</a></p>
+      </div>
+      <div>
+        <h3>project</h3>
+        <ul>
+          <li><a href="https://github.com/sepehrmohseni/citadel">source on GitHub</a></li>
+          <li><a href="https://github.com/sepehrmohseni/citadel/releases">releases</a></li>
+          <li><a href="https://github.com/sepehrmohseni/citadel#building">build from source</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>security</h3>
+        <ul>
+          <li><a href="https://github.com/sepehrmohseni/citadel/blob/main/SECURITY.md">SECURITY.md</a></li>
+          <li><a href="https://github.com/sepehrmohseni/citadel/security/advisories/new">report a vulnerability</a></li>
+          <li class="muted">private, via GitHub Security Advisories</li>
+        </ul>
+      </div>
+      <div>
+        <h3>license</h3>
+        <ul>
+          <li><a href="https://github.com/sepehrmohseni/citadel/blob/main/LICENSE-MIT">MIT</a> or <a href="https://github.com/sepehrmohseni/citadel/blob/main/LICENSE-APACHE">Apache-2.0</a></li>
+          <li class="muted">JetBrains Mono and Vazirmatn, SIL OFL 1.1</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot-log"><span><span class="lvl ok">OK</span> no cookies · no analytics · no third-party requests on this page</span></p>
   </div>
 </footer>
 
-<script>
-document.querySelectorAll("pre").forEach(function (pre) {
-  var btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "copy";
-  btn.textContent = "Copy";
-  btn.addEventListener("click", function () {
-    var text = Array.prototype.map.call(pre.querySelector("code").childNodes, function (n) {
-      return n.nodeType === 1 && n.classList.contains("prompt") ? "" : n.textContent;
-    }).join("");
-    var done = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1500); };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, function () { btn.textContent = "Failed"; });
-    }
-  });
-  pre.appendChild(btn);
-});
-</script>
+<div class="statusline" aria-hidden="true">
+  <span class="l"><span class="si mark">CITADEL</span><span class="si">pre-1.0</span><span class="si">account <b>none</b></span><span class="si">cloud <b>none</b></span><span class="si">telemetry <b>none</b></span></span>
+  <span class="r"><span class="si pend" data-pend hidden>g-</span><span class="si"><kbd>g</kbd><kbd>1</kbd>..<kbd>8</kbd> jump</span><span class="si"><b data-pos>Top</b></span><span class="si" data-sclock>--:--</span></span>
+</div>
 </body>
 </html>

@@ -260,6 +260,18 @@ impl Entry {
     pub fn is_tombstone(&self) -> bool {
         matches!(self, Self::Tombstone(_))
     }
+
+    pub fn set_stamp(&mut self, ms: u64) {
+        match self {
+            Self::Host(r) => r.updated_ms = ms,
+            Self::Identity(r) => r.updated_ms = ms,
+            Self::Tunnel(r) => r.updated_ms = ms,
+            Self::Snippet(r) => r.updated_ms = ms,
+            Self::KnownHost(r) => r.updated_ms = ms,
+            Self::SyncTarget(r) => r.updated_ms = ms,
+            Self::Tombstone(r) => r.updated_ms = ms,
+        }
+    }
 }
 
 pub(crate) mod sealed {

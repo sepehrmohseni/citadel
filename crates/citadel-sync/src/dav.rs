@@ -55,7 +55,7 @@ impl WebDav {
             return Err(failure(resp).await);
         }
         let tag = http::etag(resp.headers()).unwrap_or_default();
-        Ok(Some((resp.bytes().await?.to_vec(), tag)))
+        Ok(Some((http::body(resp, http::MAX_BODY).await?, tag)))
     }
 
     async fn attempt(&self, blob: &[u8], expected: Option<&str>) -> Result<reqwest::Response> {

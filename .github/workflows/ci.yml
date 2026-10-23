@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 permissions:
@@ -118,6 +118,7 @@ jobs:
           path: |
             app/e2e-artifacts/*.png
             app/e2e-artifacts/intl/*.png
+            app/e2e-artifacts/features/*.png
           retention-days: 7
 
   portable:

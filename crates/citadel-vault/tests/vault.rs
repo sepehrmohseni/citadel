@@ -517,3 +517,73 @@ fn backups_rotate_and_restore() -> Res {
     assert_eq!(other.list::<HostProfile>()?.len(), 2);
     Ok(())
 }
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+#[test]
+fn clock_is_seeded_from_stored_stamps_after_reopen() -> Res {
+    let dir = TempDir::new()?;
+    let path = dir.path().join("v.redb");
+    let far = now_ms() + 10 * 86_400_000;
+    let id = {
+        let v = fresh(&dir, "v.redb", "pw")?;
+        let mut h = host("skewed")?;
+        h.updated_ms = far;
+        v.merge(vec![Entry::Host(h.clone())])?;
+        h.id
+    };
+    let v = Vault::open(&path)?;
+    v.unlock(&pw("pw"))?;
+    let mut h = v.get::<HostProfile>(id)?.ok_or("missing")?;
+    h.port = 2201;
+    v.put(&mut h)?;
+    let stamped = v.get::<HostProfile>(id)?.ok_or("missing")?.updated_ms;
+    assert!(stamped > far, "edit stamped {stamped} not after {far}");
+    Ok(())
+}
+
+#[test]
+fn replace_supersedes_stale_copies_and_buries_dropped_records() -> Res {
+    let dir = TempDir::new()?;
+    let v = fresh(&dir, "v.redb", "pw")?;
+    let mut a = host("alpha")?;
+    let mut b = host("bravo")?;
+    v.put(&mut a)?;
+    v.put(&mut b)?;
+    let stale_a = a.clone();
+    let stale_b = b.clone();
+    let mut old_a = a.clone();
+    old_a.port = 2022;
+    old_a.updated_ms = 5;
+    let report = v.replace(&[Entry::Host(old_a)])?;
+    assert_eq!((report.added, report.deleted), (1, 1));
+    let merged = v.merge(vec![Entry::Host(stale_a), Entry::Host(stale_b)])?;
+    assert_eq!(merged.added + merged.updated, 0);
+    assert_eq!(v.get::<HostProfile>(a.id)?.ok_or("missing")?.port, 2022);
+    assert!(v.get::<HostProfile>(b.id)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn rotation_never_deletes_the_backup_it_just_wrote() -> Res {
+    let dir = TempDir::new()?;
+    let backups = dir.path().join("backups");
+    std::fs::create_dir_all(&backups)?;
+    for i in 0..4 {
+        std::fs::write(
+            backups.join(format!("citadel-999999999999{i}-1.ctdl")),
+            b"future",
+        )?;
+    }
+    let v = fresh(&dir, "v.redb", "pw")?;
+    let mut a = host("alpha")?;
+    v.put(&mut a)?;
+    let made = v.backup_to(&backups, 3)?;
+    assert!(made.path.exists());
+    assert_eq!(citadel_vault::list_backups(&backups).len(), 3);
+    Ok(())
+}

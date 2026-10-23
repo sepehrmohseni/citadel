@@ -217,6 +217,15 @@ fn slug(label: &str) -> String {
     if s.is_empty() { "host".into() } else { s }
 }
 
+pub(crate) fn plain_alias(alias: &str) -> bool {
+    !alias.is_empty()
+        && alias.len() <= 128
+        && !alias.starts_with('-')
+        && !alias.chars().any(|c| {
+            c.is_control() || c.is_whitespace() || matches!(c, '*' | '?' | '!' | ',' | '"' | '#')
+        })
+}
+
 fn export_one(vault: &Vault, cfg: &mut SshConfig, id: Id, depth: usize) -> CmdResult<String> {
     if depth > 8 {
         return Err(AppError::Cycle(id));
@@ -227,7 +236,7 @@ fn export_one(vault: &Vault, cfg: &mut SshConfig, id: Id, depth: usize) -> CmdRe
     let alias = h.ssh_alias.clone().unwrap_or_else(|| slug(&h.label));
     let unsafe_field =
         |v: &str| v.is_empty() || v.chars().any(|c| c.is_control() || c.is_whitespace());
-    if unsafe_field(&alias) || unsafe_field(&h.hostname) || unsafe_field(&h.user) {
+    if !plain_alias(&alias) || unsafe_field(&h.hostname) || unsafe_field(&h.user) {
         return Err(AppError::invalid(format!(
             "{} has fields that cannot be written safely to ssh_config",
             h.label

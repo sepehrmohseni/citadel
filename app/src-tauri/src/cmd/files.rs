@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -9,6 +8,7 @@ use tauri::ipc::Channel;
 use super::{AppState, Lease};
 use crate::core::{Core, parse_id};
 use crate::error::{AppError, CmdResult};
+use crate::grants::Access;
 
 const WAIT: Duration = Duration::from_secs(30);
 const EDIT_CAP: u64 = 8 << 20;
@@ -37,6 +37,16 @@ fn throttled(ch: Channel<Progress>) -> impl Fn(Progress) + Send + Sync {
 pub async fn sftp_home(state: State<'_, AppState>, host: String) -> CmdResult<String> {
     let (_l, sftp) = open(&state.0, &host).await?;
     Ok(sftp.realpath(".").await?)
+}
+
+#[tauri::command]
+pub async fn sftp_realpath(
+    state: State<'_, AppState>,
+    host: String,
+    path: String,
+) -> CmdResult<String> {
+    let (_l, sftp) = open(&state.0, &host).await?;
+    Ok(sftp.realpath(&path).await?)
 }
 
 #[tauri::command]
@@ -89,11 +99,11 @@ pub async fn sftp_download(
     local: String,
     progress: Channel<Progress>,
 ) -> CmdResult<u64> {
-    let (_l, sftp) = open(&state.0, &host).await?;
-    let local = PathBuf::from(local);
+    let local = state.0.grants.redeem(&local, Access::Write)?;
     if local.is_dir() {
         return Err(AppError::invalid("destination is a directory"));
     }
+    let (_l, sftp) = open(&state.0, &host).await?;
     let report = throttled(progress);
     Ok(sftp.download(&remote, &local, &report).await?)
 }
@@ -106,9 +116,10 @@ pub async fn sftp_upload(
     remote: String,
     progress: Channel<Progress>,
 ) -> CmdResult<u64> {
+    let local = state.0.grants.redeem(&local, Access::Read)?;
     let (_l, sftp) = open(&state.0, &host).await?;
     let report = throttled(progress);
-    Ok(sftp.upload(&PathBuf::from(local), &remote, &report).await?)
+    Ok(sftp.upload(&local, &remote, &report).await?)
 }
 
 #[tauri::command]

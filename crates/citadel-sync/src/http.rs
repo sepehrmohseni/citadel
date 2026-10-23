@@ -10,6 +10,18 @@ use crate::{Result, SyncError};
 const TIMEOUT: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const BODY_PREVIEW: usize = 512;
+pub(crate) const MAX_BODY: usize = 128 << 20;
+
+pub(crate) async fn body(mut resp: Response, cap: usize) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if out.len() + chunk.len() > cap {
+            return Err(SyncError::Oversize(cap));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
 
 pub(crate) fn client() -> Result<Client> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -49,7 +61,14 @@ pub(crate) async fn failure(resp: Response) -> SyncError {
     if status == StatusCode::PRECONDITION_FAILED || status == StatusCode::CONFLICT {
         return SyncError::Conflict;
     }
-    let mut body = resp.text().await.unwrap_or_default();
+    let mut body = String::new();
+    let mut resp = resp;
+    while body.len() <= BODY_PREVIEW {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => body.push_str(&String::from_utf8_lossy(&chunk)),
+            _ => break,
+        }
+    }
     if body.len() > BODY_PREVIEW {
         let mut cut = BODY_PREVIEW;
         while !body.is_char_boundary(cut) {

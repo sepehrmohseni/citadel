@@ -1,5 +1,4 @@
 import "./pages.css";
-import { open } from "@tauri-apps/plugin-dialog";
 import { api, errCode, errText, type AgentKey, type Identity, type KeyKind, type KnownHost } from "../api";
 import { clear, h, icon } from "../dom";
 import type { Page } from "../shell";
@@ -98,12 +97,12 @@ function importModal(): void {
     icon: "folder",
     onClick: async () => {
       try {
-        const picked = await open({ multiple: false, directory: false, title: "Select a private key" });
-        if (typeof picked === "string") {
-          path = picked;
-          pathEl.textContent = picked;
+        const [picked] = await api.pickOpen("Select a private key", []);
+        if (picked) {
+          path = picked.token;
+          pathEl.textContent = picked.path;
           pathEl.classList.add("set");
-          if (!label.value.trim()) label.value = picked.split(/[\\/]/).pop() ?? "";
+          if (!label.value.trim()) label.value = picked.name;
         }
       } catch (e) {
         fail(e);

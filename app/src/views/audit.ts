@@ -105,9 +105,37 @@ export function auditPage(): Page {
           body,
         ),
       );
+      let stale = false;
+      const soon = () => {
+        if (root.hidden || root.closest("[hidden]")) stale = true;
+        else void run();
+      };
+      const onShow = () => {
+        if (!stale) return;
+        stale = false;
+        void run();
+      };
+      let shape = "";
+      const shapeOf = () =>
+        tunnels
+          .get()
+          .map((t) => `${t.id}:${t.autostart}:${JSON.stringify(t.forward)}`)
+          .join("|");
+      shape = shapeOf();
+      root.addEventListener("page:show", onShow);
       void run();
-      const unsubs = [hosts.subscribe(() => void run(), false), identities.subscribe(() => void run(), false), tunnels.subscribe(() => void run(), false)];
+      const unsubs = [
+        hosts.subscribe(soon, false),
+        identities.subscribe(soon, false),
+        tunnels.subscribe(() => {
+          const next = shapeOf();
+          if (next === shape) return;
+          shape = next;
+          soon();
+        }, false),
+      ];
       return () => {
+        root.removeEventListener("page:show", onShow);
         for (const u of unsubs) u();
       };
     },

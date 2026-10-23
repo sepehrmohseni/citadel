@@ -1,6 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog";
-
-import { api, errCode, errText, type BackupInfo } from "../api";
+import { api, errCode, errText, type BackupInfo, type RestoreSource } from "../api";
 import { ago, foreignKey, h } from "../dom";
 import { input } from "../ui";
 
@@ -28,7 +26,7 @@ export function lockScreen(initialized: boolean, onUnlocked: () => void): HTMLEl
   const confirm = input({ type: "password", "aria-label": "Confirm passphrase" });
   const msg = h("div", { class: "lock-msg", role: "alert" });
   const hint = h("div", { class: "lock-hint", "aria-live": "polite" });
-  let restoring: string | null = null;
+  let restoring: RestoreSource | null = null;
   const lede = h(
     "p",
     { class: "lock-lede" },
@@ -67,13 +65,13 @@ export function lockScreen(initialized: boolean, onUnlocked: () => void): HTMLEl
   const watchKeys = (e: KeyboardEvent) => {
     const notes: string[] = [];
     if (e.getModifierState?.("CapsLock")) notes.push("caps lock is on");
-    if (foreignKey(e)) notes.push(`non-latin keyboard layout active (${e.key})`);
+    if (foreignKey(e)) notes.push("non-latin keyboard layout active");
     hint.textContent = notes.join(" · ");
   };
   pw.addEventListener("keydown", watchKeys);
   confirm.addEventListener("keydown", watchKeys);
-  const enterRestore = (path: string, label: string) => {
-    restoring = path;
+  const enterRestore = (source: RestoreSource, label: string) => {
+    restoring = source;
     card.classList.add("restoring");
     lede.textContent = `Restoring ${label}. Enter the passphrase the vault had when this backup was taken.`;
     const verbEl = submit.querySelector("span");
@@ -90,15 +88,19 @@ export function lockScreen(initialized: boolean, onUnlocked: () => void): HTMLEl
       h(
         "div",
         { class: "row" },
-        h("button", { type: "button", class: "btn small", onClick: () => enterRestore(latest.path, "the newest backup") }, "restore newest"),
+        h("button", { type: "button", class: "btn small", onClick: () => enterRestore({ kind: "snapshot", name: latest.name }, "the newest backup") }, "restore newest"),
         h(
           "button",
           {
             type: "button",
             class: "btn small ghost",
             onClick: async () => {
-              const picked = await open({ multiple: false, filters: [{ name: "Citadel backup", extensions: ["ctdl"] }] });
-              if (typeof picked === "string") enterRestore(picked, picked.split(/[\\/]/).pop() ?? "backup");
+              try {
+                const [picked] = await api.pickOpen("Choose a Citadel backup", [{ name: "Citadel backup", extensions: ["ctdl"] }]);
+                if (picked) enterRestore({ kind: "file", token: picked.token }, `${picked.name}. Files from elsewhere are imported with autostart, agent forwarding and trusted host keys switched off`);
+              } catch (e) {
+                msg.textContent = errText(e);
+              }
             },
           },
           "choose file…",

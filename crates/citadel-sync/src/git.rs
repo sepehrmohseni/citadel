@@ -3,13 +3,14 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
 use crate::{Fetched, Remote, Result, SyncError, Version};
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(120);
+const MAX_OUTPUT: usize = 128 << 20;
 const AUTHOR: &str = "Citadel";
 const EMAIL: &str = "citadel@localhost";
 const HARDENING: [&str; 8] = [
@@ -126,15 +127,35 @@ impl Git {
             pipe.write_all(data).await?;
             drop(pipe);
         }
-        let out = tokio::time::timeout(GIT_TIMEOUT, child.wait_with_output())
-            .await
-            .map_err(|_| {
-                SyncError::Git(format!("git {} timed out", args.first().unwrap_or(&"")))
-            })??;
+        let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+            return Err(SyncError::Git("git pipes unavailable".into()));
+        };
+        let collect = async {
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let mut stdout = stdout.take(MAX_OUTPUT as u64 + 1);
+            let mut stderr = stderr.take(64 * 1024);
+            let (a, b) = tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
+            a?;
+            b?;
+            drop(stdout);
+            drop(stderr);
+            let status = child.wait().await?;
+            Ok::<_, std::io::Error>((status, out, err))
+        };
+        let (status, out, err) =
+            tokio::time::timeout(GIT_TIMEOUT, collect)
+                .await
+                .map_err(|_| {
+                    SyncError::Git(format!("git {} timed out", args.first().unwrap_or(&"")))
+                })??;
+        if out.len() > MAX_OUTPUT {
+            return Err(SyncError::Oversize(MAX_OUTPUT));
+        }
         Ok(Run {
-            ok: out.status.success(),
-            stdout: out.stdout,
-            stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+            ok: status.success(),
+            stdout: out,
+            stderr: String::from_utf8_lossy(&err).trim().to_owned(),
         })
     }
 

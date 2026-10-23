@@ -2,6 +2,8 @@ mod cmd;
 mod core;
 mod dto;
 mod error;
+mod grants;
+mod hotkey;
 mod plan;
 mod prefs;
 mod safety;
@@ -100,6 +102,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         dirs,
     ));
     core.watch_vault();
+    let chord = core.prefs().global_hotkey;
+    let status = hotkey::apply(app.handle(), &core.hotkey, &chord);
+    if let Some(err) = status.error {
+        tracing::warn!("global shortcut {chord} unavailable: {err}");
+    }
     app.manage(AppState(core));
     Ok(())
 }
@@ -117,8 +124,38 @@ pub fn run() {
     let built = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(hotkey::handler)
+                .build(),
+        )
         .setup(setup)
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
+                if let Some(state) = window.try_state::<AppState>() {
+                    state.0.grants.note_dropped(paths);
+                }
+            }
+            tauri::WindowEvent::Focused(on) => hotkey::focus_changed(*on),
+            _ => {}
+        })
         .invoke_handler(tauri::generate_handler![
+            cmd::pick::pick_open,
+            cmd::pick::pick_save,
+            cmd::pick::grant_dropped,
+            cmd::fonts::fonts_list,
+            cmd::session::session_load,
+            cmd::session::session_save,
+            cmd::fleet::fleet_run,
+            cmd::fleet::fleet_cancel,
+            cmd::ports::ports_list,
+            cmd::ports::port_free,
+            cmd::ports::open_local,
+            cmd::ports::open_link,
+            cmd::files::sftp_realpath,
+            cmd::misc::hotkey_status,
+            cmd::misc::hotkey_set,
             cmd::vault::vault_status,
             cmd::vault::vault_create,
             cmd::vault::vault_unlock,

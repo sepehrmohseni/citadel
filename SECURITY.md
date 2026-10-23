@@ -53,6 +53,9 @@ show how Citadel's use of them is exploitable are in scope.
 | Snapshots | Written with the vault's own data key and wrapped key header, mode 0600 in a 0700 directory next to the database; opening one requires the master password that was current when it was taken |
 | Pre-upgrade copies | A byte-for-byte copy of the encrypted database, kept for the five most recent version changes |
 | Legacy algorithms | Off by default and scoped to one host; never negotiated silently |
+| Local file access | Paths come only from native dialogs opened by the core or from drops reported by the OS; the webview receives single-use tokens and holds no file permission |
+| Host key prompts | Shown only while the vault is unlocked; a pin of any algorithm for the host makes a different key "changed", with the old fingerprint displayed; identical concurrent prompts are merged |
+| Agent forwarding | For the system key source, only the key that authenticated is exposed; forwarded agents refuse to sign while the vault is locked |
 | System key source | `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa` are read at connect time when a host uses the system source and the agent did not authenticate; they are never copied into the vault |
 
 ## Known limitations

@@ -21,6 +21,8 @@ pub enum SyncError {
     Transport(String),
     #[error("invalid sync target: {0}")]
     Config(String),
+    #[error("remote object exceeds {0} bytes")]
+    Oversize(usize),
 }
 
 impl From<reqwest::Error> for SyncError {

@@ -28,6 +28,44 @@ export function toast(message: string, kind: ToastKind = "info", ms = 4200): voi
   setTimeout(kill, ms);
 }
 
+export function actionToast(message: string, actions: { label: string; run: () => void }[], ms = 12000): void {
+  if (!toastHost) {
+    toastHost = h("div", { class: "toasts", role: "status", "aria-live": "polite" });
+    document.body.append(toastHost);
+  }
+  const now = new Date();
+  const ts = [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":");
+  const el = h("div", { class: "toast toast-info toast-action" });
+  const kill = () => {
+    el.classList.remove("in");
+    setTimeout(() => el.remove(), 220);
+  };
+  el.append(
+    h("span", { class: "lvl" }, "NEW"),
+    h("span", { class: "ts" }, ts),
+    h("span", { class: "grow" }, message),
+    ...actions.map((a) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: "btn small",
+          onClick: (e: MouseEvent) => {
+            e.stopPropagation();
+            kill();
+            a.run();
+          },
+        },
+        a.label,
+      ),
+    ),
+    h("button", { type: "button", class: "btn small ghost", "aria-label": "Dismiss", onClick: kill }, "×"),
+  );
+  toastHost.append(el);
+  requestAnimationFrame(() => el.classList.add("in"));
+  setTimeout(kill, ms);
+}
+
 export function fail(e: unknown, prefix?: string): void {
   toast(prefix ? `${prefix}: ${errText(e)}` : errText(e), "error", 6500);
 }
@@ -47,11 +85,14 @@ export interface Modal {
 
 const stack: Modal[] = [];
 
-export function modal(opts: { title: string; body: Node; actions?: Action[]; wide?: boolean; onClose?: () => void }): Modal {
+const FOCUSABLE = "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
+
+export function modal(opts: { title: string; body: Node; actions?: Action[]; wide?: boolean; onClose?: () => void; focus?: string }): Modal {
   const actionsEl = h("div", { class: "modal-actions" });
+  const opener = document.activeElement as HTMLElement | null;
   const card = h(
     "div",
-    { class: `modal ticks${opts.wide ? " wide" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": opts.title },
+    { class: `modal ticks${opts.wide ? " wide" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": opts.title, tabindex: -1 },
     h("header", { class: "modal-head" }, h("h2", null, opts.title), btn("", { icon: "close", ghost: true, title: "Close", onClick: () => close() })),
     h("div", { class: "modal-body" }, opts.body),
     actionsEl,
@@ -66,6 +107,7 @@ export function modal(opts: { title: string; body: Node; actions?: Action[]; wid
     if (i >= 0) stack.splice(i, 1);
     setTimeout(() => scrim.remove(), 160);
     opts.onClose?.();
+    if (opener?.isConnected && !stack.length) opener.focus();
   };
   const busy = (on: boolean) => {
     card.classList.toggle("busy", on);
@@ -100,6 +142,20 @@ export function modal(opts: { title: string; body: Node; actions?: Action[]; wid
       e.stopPropagation();
       close();
     }
+    if (e.key === "Tab") {
+      const items = [...card.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null);
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (first && last) {
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === card)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       const primary = actionsEl.querySelector<HTMLButtonElement>("button.primary");
       primary?.click();
@@ -109,8 +165,13 @@ export function modal(opts: { title: string; body: Node; actions?: Action[]; wid
   stack.push(handle);
   requestAnimationFrame(() => {
     scrim.classList.add("in");
-    const first = card.querySelector<HTMLElement>("input:not([type=hidden]):not([disabled]), textarea, select, button.primary");
-    first?.focus();
+    const risky = (opts.actions ?? []).some((a) => a.kind === "danger");
+    const target =
+      (opts.focus ? card.querySelector<HTMLElement>(opts.focus) : null) ??
+      card.querySelector<HTMLElement>(".modal-body input:not([type=hidden]):not([disabled]), .modal-body textarea, .modal-body select") ??
+      (risky ? actionsEl.querySelector<HTMLElement>("button.ghost") : actionsEl.querySelector<HTMLElement>("button.primary")) ??
+      card;
+    target.focus();
   });
   return handle;
 }

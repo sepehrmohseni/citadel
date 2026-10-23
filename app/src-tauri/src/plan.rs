@@ -40,6 +40,11 @@ fn expand(
     if !seen.insert(id) {
         return Err(AppError::Cycle(id));
     }
+    if seen.len() > MAX_HOPS {
+        return Err(AppError::invalid(format!(
+            "jump chain exceeds {MAX_HOPS} hops"
+        )));
+    }
     let h = vault
         .get::<HostProfile>(id)?
         .ok_or(AppError::NotFound("host"))?;
@@ -116,6 +121,7 @@ pub fn route(core: &Arc<Core>, host: Id) -> CmdResult<Route> {
             let _ = app.emit(EV_BANNER, (label.clone(), text.to_owned()));
         })),
         prompter: Some(Arc::new(UiPrompter { core: core.clone() })),
+        agent_gate: Some(core.agent_gate.clone()),
     })
 }
 
@@ -163,27 +169,25 @@ fn key_parts(key: &PublicKey) -> (String, String) {
 enum Trust {
     Known,
     Unknown,
-    Changed,
+    Changed(Option<String>),
 }
 
 fn assess(core: &Core, host: &str, port: u16, key: &PublicKey) -> Trust {
     let (alg, blob) = key_parts(key);
     let stored = core.vault.list::<KnownHost>().unwrap_or_default();
-    let mut changed = false;
+    let mut previous = None;
     for k in stored.iter().filter(|k| k.host == host && k.port == port) {
         if k.algorithm == alg && k.key == blob {
             return Trust::Known;
         }
-        if k.algorithm == alg {
-            changed = true;
-        }
+        previous.get_or_insert_with(|| k.fingerprint.clone());
     }
-    if changed {
-        return Trust::Changed;
+    if previous.is_some() {
+        return Trust::Changed(previous);
     }
     match KnownHostsFile::system(UnknownHost::Reject).map(|f| f.status(host, port, key)) {
         Some(Ok(HostKeyStatus::Known)) => Trust::Known,
-        Some(Ok(HostKeyStatus::Changed { .. })) => Trust::Changed,
+        Some(Ok(HostKeyStatus::Changed { .. })) => Trust::Changed(None),
         _ => Trust::Unknown,
     }
 }
@@ -191,7 +195,7 @@ fn assess(core: &Core, host: &str, port: u16, key: &PublicKey) -> Trust {
 fn remember(vault: &Vault, host: &str, port: u16, key: &PublicKey) -> CmdResult<()> {
     let (alg, blob) = key_parts(key);
     for old in vault.list::<KnownHost>()? {
-        if old.host == host && old.port == port && old.algorithm == alg {
+        if old.host == host && old.port == port {
             vault.remove(old.id)?;
         }
     }
@@ -221,10 +225,10 @@ impl HostKeyVerifier for VaultVerifier {
             let trust = tokio::task::spawn_blocking(move || assess(&core, &h, port, &k))
                 .await
                 .unwrap_or(Trust::Unknown);
-            let status = match trust {
+            let (status, previous) = match trust {
                 Trust::Known => return Ok(true),
-                Trust::Unknown => "unknown",
-                Trust::Changed => "changed",
+                Trust::Unknown => ("unknown", None),
+                Trust::Changed(prev) => ("changed", prev),
             };
             let kind = PromptKind::HostKey {
                 host: host.to_owned(),
@@ -232,6 +236,7 @@ impl HostKeyVerifier for VaultVerifier {
                 algorithm: key.algorithm().to_string(),
                 fingerprint: fingerprint(key),
                 status,
+                previous,
             };
             let accepted = matches!(
                 self.core.prompts.ask(&self.core.app, kind).await,

@@ -14,7 +14,8 @@ pub async fn prefs_get(state: State<'_, AppState>) -> CmdResult<Prefs> {
 #[tauri::command]
 pub async fn prefs_set(state: State<'_, AppState>, prefs: Prefs) -> CmdResult<Prefs> {
     let core = &state.0;
-    let prefs = prefs.sanitized();
+    let mut prefs = prefs.sanitized();
+    prefs.global_hotkey = core.prefs().global_hotkey;
     prefs.save(&core.dirs.config)?;
     core.autolock.set_idle(prefs.autolock());
     *lock(&core.prefs) = prefs.clone();
@@ -46,4 +47,28 @@ pub async fn link_reconnect(state: State<'_, AppState>, host: String) -> CmdResu
         hub.link.reconnect_now();
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn hotkey_status(state: State<'_, AppState>) -> CmdResult<crate::hotkey::HotkeyStatus> {
+    Ok(lock(&state.0.hotkey).clone())
+}
+
+#[tauri::command]
+pub async fn hotkey_set(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    chord: String,
+) -> CmdResult<crate::hotkey::HotkeyStatus> {
+    let chord = chord.trim().to_owned();
+    if !chord.is_empty() {
+        crate::hotkey::accelerator(&chord)?;
+    }
+    let core = &state.0;
+    let status = crate::hotkey::apply(&app, &core.hotkey, &chord);
+    let mut prefs = core.prefs();
+    prefs.global_hotkey = chord;
+    prefs.save(&core.dirs.config)?;
+    *lock(&core.prefs) = prefs;
+    Ok(status)
 }

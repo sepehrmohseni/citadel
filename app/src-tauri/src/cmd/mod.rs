@@ -1,8 +1,13 @@
 pub mod audit;
 pub mod config;
 pub mod files;
+pub mod fleet;
+pub mod fonts;
 pub mod hosts;
 pub mod misc;
+pub mod pick;
+pub mod ports;
+pub mod session;
 pub mod sync;
 pub mod telemetry;
 pub mod term;

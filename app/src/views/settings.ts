@@ -1,7 +1,6 @@
 import "./pages.css";
 import { THEMES, themeFor } from "../themes";
 import { getVersion } from "@tauri-apps/api/app";
-import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   api,
   errCode,
@@ -15,12 +14,14 @@ import {
   type SyncReport,
   type SyncTarget,
 } from "../api";
-import { ago, bytes, clear, debounce, h, icon } from "../dom";
-import type { Page } from "../shell";
-import { hosts, prefs, refreshAll } from "../store";
+import { ago, bytes, clear, debounce, h, icon, kbd } from "../dom";
+import { COMMANDS, bindings, chordOf, conflicts, defaults, getOverrides, isDefault, normalize, onKeymapChange, pretty, suspend } from "../keymap";
+import { fontPicker, stepper } from "../pickers";
+import { go, type Page } from "../shell";
+import { hosts, prefs, refreshAll, updatePrefs } from "../store";
 import { askText, btn, confirmBox, copyText, fail, field, input, modal, segmented, select, toast, toggle } from "../ui";
 
-type SectionId = "vault" | "terminal" | "agent" | "openssh" | "sync" | "about";
+type SectionId = "vault" | "terminal" | "shortcuts" | "agent" | "openssh" | "sync" | "about";
 
 interface Section {
   el: HTMLElement;
@@ -30,6 +31,7 @@ interface Section {
 const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
   { id: "vault", label: "Vault", icon: "lock" },
   { id: "terminal", label: "Terminal", icon: "terminal" },
+  { id: "shortcuts", label: "Shortcuts", icon: "keyboard" },
   { id: "agent", label: "SSH agent", icon: "key" },
   { id: "openssh", label: "OpenSSH config", icon: "file" },
   { id: "sync", label: "Sync", icon: "cloud" },
@@ -163,15 +165,11 @@ function exportModal(): void {
             return false;
           }
           const stamp = new Date().toISOString().slice(0, 10);
-          const path = await save({
-            title: "Export Citadel bundle",
-            defaultPath: `citadel-${stamp}.ctdl`,
-            filters: [{ name: "Citadel bundle", extensions: ["ctdl"] }],
-          });
-          if (!path) return false;
-          const size = await api.vaultExport(path, pw.value);
+          const target = await api.pickSave("Export Citadel bundle", `citadel-${stamp}.ctdl`, [{ name: "Citadel bundle", extensions: ["ctdl"] }]);
+          if (!target) return false;
+          const size = await api.vaultExport(target.token, pw.value);
           pw.value = again.value = "";
-          toast(`Exported ${bytes(size)} to ${path}`, "ok", 6000);
+          toast(`Exported ${bytes(size)} to ${target.path}`, "ok", 6000);
           return true;
         },
       },
@@ -206,10 +204,10 @@ function importModal(): void {
             icon: "folder",
             onClick: async () => {
               try {
-                const picked = await open({ multiple: false, directory: false, filters: [{ name: "Citadel bundle", extensions: ["ctdl"] }] });
-                if (typeof picked === "string") {
-                  path = picked;
-                  pathEl.textContent = picked;
+                const [picked] = await api.pickOpen("Choose a Citadel bundle", [{ name: "Citadel bundle", extensions: ["ctdl"] }]);
+                if (picked) {
+                  path = picked.token;
+                  pathEl.textContent = picked.path;
                   pathEl.classList.add("set");
                 }
               } catch (e) {
@@ -301,9 +299,9 @@ function restoreModal(b: BackupInfo, done: () => void): void {
         label: "Restore",
         kind: "primary",
         run: async () => {
-          const r = await api.backupRestore(b.path, pw.value, replace);
+          const r = await api.backupRestore({ kind: "snapshot", name: b.name }, pw.value, replace);
           await refreshAll();
-          toast(`Restored: ${r.added} added, ${r.updated} updated`, "ok", 4000);
+          toast(`Restored: ${r.report.added} added, ${r.report.updated} updated`, "ok", 4000);
           done();
         },
       },
@@ -445,19 +443,19 @@ function terminalSection(): Section {
       paint(local);
       queuePrefs(patch);
     };
-    const num = (value: number, min: number, max: number, step: number, key: keyof Prefs, cls = "narrow") => {
-      const el = input({ type: "number", min: String(min), max: String(max), step: String(step), value: String(value), class: `input ${cls}` });
-      el.addEventListener("change", () => {
-        const v = Number(el.value);
-        if (!Number.isFinite(v)) return;
-        const clamped = Math.min(max, Math.max(min, v));
-        el.value = String(clamped);
-        change({ [key]: clamped } as Partial<Prefs>);
-      });
-      return el;
-    };
-    const family = input({ value: p.font_family, class: "input wide mono" });
-    family.addEventListener("change", () => change({ font_family: family.value.trim() || p.font_family }));
+    const family = fontPicker(p.font_family, (stack) => change({ font_family: stack }));
+    const presets = (values: number[], current: number, label: (v: number) => string) =>
+      [...new Set([...values, current])].sort((a, b) => a - b).map((v) => ({ value: String(v), label: label(v) }));
+    const scrollback = select(
+      presets([1000, 5000, 10000, 25000, 50000, 100000, 200000], p.scrollback, (v) => `${v.toLocaleString()} lines`),
+      String(p.scrollback),
+    );
+    scrollback.addEventListener("change", () => change({ scrollback: Number(scrollback.value) }));
+    const pasteLimit = select(
+      presets([0, 1, 3, 5, 10, 25, 100], p.paste_confirm_lines, (v) => (v === 0 ? "never ask" : v === 1 ? "any multi-line paste" : `more than ${v} lines`)),
+      String(p.paste_confirm_lines),
+    );
+    pasteLimit.addEventListener("change", () => change({ paste_confirm_lines: Number(pasteLimit.value) }));
     const telemetry = select(
       [1000, 2000, 5000, 10000].map((ms) => ({ value: String(ms), label: `${ms / 1000} s` })),
       String(p.telemetry_ms),
@@ -505,9 +503,9 @@ function terminalSection(): Section {
       card(null, h("div", { class: "set-row" }, h("div", { class: "desc" }, preview))),
       card(
         "Typography",
-        row("Font family", "CSS font stack. The first installed font is used.", family),
-        row("Font size", "8 to 32 px.", num(p.font_size, 8, 32, 1, "font_size")),
-        row("Line height", "1.0 to 2.0.", num(p.line_height, 1, 2, 0.05, "line_height")),
+        row("Font", "Monospace fonts installed on this computer. JetBrains Mono ships with Citadel.", family),
+        row("Size", null, stepper(p.font_size, { min: 8, max: 32, step: 1, label: "font size", format: (v) => `${v} px` }, (v) => change({ font_size: v }))),
+        row("Line height", null, stepper(p.line_height, { min: 1, max: 2, step: 0.05, label: "line height", format: (v) => v.toFixed(2) }, (v) => change({ line_height: v }))),
       ),
       card(
         "Cursor",
@@ -528,9 +526,11 @@ function terminalSection(): Section {
       ),
       card(
         "Behaviour",
-        row("Scrollback", "Lines kept per terminal, 500 to 200 000.", num(p.scrollback, 500, 200000, 500, "scrollback", "input")),
+        row("Scrollback", "Lines kept per terminal.", scrollback),
         row("Copy on select", "Selecting text copies it to the clipboard.", toggle(p.copy_on_select, "", (v) => change({ copy_on_select: v }))),
-        row("Paste confirmation", "Ask before pasting more than this many lines. 0 disables the check.", num(p.paste_confirm_lines, 0, 1000, 1, "paste_confirm_lines")),
+        row("Paste confirmation", "Ask before a paste that could run several commands.", pasteLimit),
+        row("Reopen tabs", "Restore open terminals, split layouts and file browsers the next time Citadel starts.", toggle(p.restore_tabs, "", (v) => change({ restore_tabs: v }))),
+        row("Detect new ports", "Offer to forward a port when a server starts listening on it, for example a dev server.", toggle(p.detect_ports, "", (v) => change({ detect_ports: v }))),
         row("Telemetry interval", "How often host metrics refresh in the terminal side panel.", telemetry),
         row(
           "Renderer",
@@ -1128,16 +1128,239 @@ function aboutSection(): Section {
     card(
       null,
       row("Citadel", "Licensed under MIT OR Apache-2.0.", ver),
-      row("Source", REPO, btn("Copy URL", { icon: "copy", small: true, onClick: () => void copyText(REPO, "Repository URL copied") })),
+      row("Source", REPO, btn("open", { small: true, onClick: () => void api.openLink("repo").catch((e) => fail(e)) }), btn("Copy URL", { icon: "copy", small: true, onClick: () => void copyText(REPO, "Repository URL copied") })),
+      row("Releases", "Installers for Windows, macOS and Linux.", btn("open", { small: true, onClick: () => void api.openLink("releases").catch((e) => fail(e)) })),
+      row("Author", "Sepehr Mohseni", btn("sepehrmohseni.com", { small: true, onClick: () => void api.openLink("author").catch((e) => fail(e)) })),
+      row("Report a problem", "Security issues go through GitHub Security Advisories, never public issues.", btn("issues", { small: true, onClick: () => void api.openLink("issues").catch((e) => fail(e)) })),
     ),
     card("Security model", h("table", { class: "spec-table" }, h("tbody", null, specs.map(([k, v]) => h("tr", null, h("td", null, k), h("td", null, v)))))),
   );
   return { el };
 }
 
+function recordChord(title: string, opts: { global?: boolean; except?: string } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    let steps: string[] = [];
+    let lastAt = 0;
+    let answered = false;
+    const show = h("div", { class: "rec-keys", "aria-live": "polite" });
+    const warn = h("div", { class: "rec-warn" });
+    const paint = () => {
+      show.replaceChildren(steps.length ? kbd(...steps.flatMap((s) => pretty(s))) : h("span", { class: "dim" }, "press the keys…"));
+      const chord = steps.join(" ");
+      const hits = chord && !opts.global ? conflicts(chord, opts.except ?? "") : [];
+      warn.textContent = hits.length ? `Used by ${hits.map((c) => c.label).join(", ")}. Saving moves it here.` : "";
+      const saveBtn = m.el.querySelector<HTMLButtonElement>(".modal-actions .primary");
+      if (saveBtn) saveBtn.disabled = !steps.length;
+    };
+    const resume = suspend();
+    const onKey = (e: KeyboardEvent) => {
+      if (!m.el.isConnected) return;
+      if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) return;
+      if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey) return;
+      if (document.activeElement?.closest(".modal-actions")) {
+        if (e.key === "Enter" || e.key === " ") return;
+      }
+      const chord = chordOf(e);
+      e.preventDefault();
+      e.stopPropagation();
+      if (!chord) return;
+      if (chord === "Backspace") {
+        steps = [];
+        paint();
+        return;
+      }
+      if (opts.global && !/^(Ctrl|Alt|Meta)\+|\+(Ctrl|Alt|Meta)\+/.test(chord)) {
+        warn.textContent = "A global shortcut needs Ctrl, Alt or the system key.";
+        return;
+      }
+      const now = Date.now();
+      steps = !opts.global && steps.length === 1 && now - lastAt < 1000 && !/\+/.test(steps[0] ?? "+") && !chord.includes("+") ? [...steps, chord] : [chord];
+      lastAt = now;
+      paint();
+    };
+    window.addEventListener("keydown", onKey, true);
+    const m = modal({
+      title,
+      body: h(
+        "div",
+        { class: "stack rec" },
+        show,
+        h("p", { class: "muted" }, opts.global ? "Press a combination with Ctrl, Alt or the system key. It works even when Citadel is hidden." : "Press a combination. Two plain keys in a row (like g then h) make a sequence. Backspace clears."),
+        warn,
+      ),
+      onClose: () => {
+        window.removeEventListener("keydown", onKey, true);
+        resume();
+        if (!answered) resolve(null);
+      },
+      actions: [
+        { label: "Cancel", kind: "ghost", run: () => undefined },
+        {
+          label: "Save",
+          kind: "primary",
+          run: () => {
+            answered = true;
+            resolve(steps.map(normalize).join(" "));
+          },
+        },
+      ],
+    });
+    paint();
+  });
+}
+
+function shortcutsSection(): Section {
+  const body = h("div");
+  const filter = input({ placeholder: "filter commands", "aria-label": "Filter commands" });
+  const hotkeyRow = h("div", { class: "set-row" });
+  const save = async (next: Record<string, string[]>) => {
+    try {
+      await updatePrefs({ keybindings: next });
+    } catch (e) {
+      fail(e, "Shortcut not saved");
+    }
+  };
+  const assign = async (id: string, replace: string | null) => {
+    const cmd = COMMANDS.find((c) => c.id === id);
+    const chord = await recordChord(cmd ? `Shortcut for ${cmd.label.toLowerCase()}` : "Shortcut", { except: id });
+    if (!chord) return;
+    const next = getOverrides();
+    for (const other of conflicts(chord, id)) next[other.id] = bindings(other.id).filter((b) => b !== chord && !b.startsWith(`${chord} `) && !chord.startsWith(`${b} `));
+    const mine = bindings(id).filter((b) => b !== replace && b !== chord);
+    next[id] = replace === null ? [...mine, chord].slice(0, 4) : [...mine, chord];
+    await save(next);
+  };
+  const renderHotkey = async () => {
+    let st;
+    try {
+      st = await api.hotkeyStatus();
+    } catch (e) {
+      hotkeyRow.replaceChildren(h("div", { class: "alert" }, icon("warn", 15), h("span", null, errText(e))));
+      return;
+    }
+    const status = st.active
+      ? h("span", { class: "badge accent" }, "active")
+      : st.chord
+        ? h("span", { class: "badge warn", title: st.error ?? "" }, "unavailable")
+        : h("span", { class: "badge" }, "off");
+    hotkeyRow.replaceChildren(
+      h(
+        "div",
+        { class: "desc" },
+        h("div", { class: "name" }, "Show or hide Citadel from any app"),
+        h("div", { class: "hint" }, st.error ? `${st.error}. Pick another combination; on Wayland desktops global shortcuts are not supported.` : "One key combination brings the window forward, or hides it when it already has focus."),
+      ),
+      h(
+        "div",
+        { class: "ctl" },
+        st.chord ? kbd(...pretty(st.chord)) : null,
+        status,
+        btn(st.chord ? "change" : "set", {
+          small: true,
+          onClick: async () => {
+            const chord = await recordChord("Global shortcut", { global: true });
+            if (!chord) return;
+            const res = await api.hotkeySet(chord).catch((e) => {
+              fail(e);
+              return null;
+            });
+            if (res && !res.active) toast(`That combination is unavailable: ${res.error ?? "taken by another app"}`, "warn", 5000);
+            void renderHotkey();
+          },
+        }),
+        st.chord ? btn("disable", { small: true, ghost: true, onClick: () => void api.hotkeySet("").then(renderHotkey).catch((e) => fail(e)) }) : null,
+      ),
+    );
+  };
+  const render = () => {
+    const q = filter.value.trim().toLowerCase();
+    const groups = new Map<string, HTMLElement[]>();
+    for (const c of COMMANDS) {
+      if (q && !`${c.label} ${c.group} ${bindings(c.id).join(" ")}`.toLowerCase().includes(q)) continue;
+      const chips = bindings(c.id).map((b) =>
+        h(
+          "span",
+          { class: "sc-chip" },
+          h("button", { type: "button", class: "sc-edit", title: "Change", onClick: () => void assign(c.id, b) }, kbd(...pretty(b))),
+          h(
+            "button",
+            {
+              type: "button",
+              class: "sc-x",
+              title: "Remove",
+              "aria-label": `Remove ${b}`,
+              onClick: () => {
+                const next = getOverrides();
+                next[c.id] = bindings(c.id).filter((x) => x !== b);
+                void save(next);
+              },
+            },
+            "×",
+          ),
+        ),
+      );
+      const rowEl = h(
+        "div",
+        { class: `sc-row${isDefault(c.id) ? "" : " changed"}` },
+        h("span", { class: "sc-label" }, c.label),
+        h("span", { class: "sc-keys" }, chips.length ? chips : h("span", { class: "dim" }, "unassigned")),
+        h(
+          "span",
+          { class: "sc-acts" },
+          bindings(c.id).length < 4 ? btn("", { icon: "plus", small: true, ghost: true, title: "Add a shortcut", onClick: () => void assign(c.id, null) }) : null,
+          isDefault(c.id)
+            ? null
+            : btn("reset", {
+                small: true,
+                ghost: true,
+                title: `Default: ${defaults(c.id).join(", ") || "none"}`,
+                onClick: () => {
+                  const next = getOverrides();
+                  delete next[c.id];
+                  void save(next);
+                },
+              }),
+        ),
+      );
+      groups.set(c.group, [...(groups.get(c.group) ?? []), rowEl]);
+    }
+    body.replaceChildren(
+      ...[...groups.entries()].map(([g, rows]) => card(g, h("div", { class: "sc-list" }, rows))),
+      groups.size ? h("span") : h("p", { class: "muted" }, `No command matches "${filter.value}".`),
+    );
+  };
+  filter.addEventListener("input", render);
+  const off = onKeymapChange(render);
+  render();
+  void renderHotkey();
+  const el = h(
+    "div",
+    null,
+    head("Shortcuts", "Every keyboard shortcut in Citadel. Click a key to change it. Inside a terminal, Ctrl+letter always reaches the shell; app shortcuts there use Ctrl+Shift."),
+    card("Global", hotkeyRow),
+    h(
+      "div",
+      { class: "sc-tools" },
+      h("div", { class: "search" }, h("span", { class: "prompt" }, "/"), filter),
+      btn("reset all", {
+        small: true,
+        ghost: true,
+        onClick: async () => {
+          if (!Object.keys(getOverrides()).length) return;
+          if (await confirmBox("Reset shortcuts", "Every shortcut goes back to its default.", { confirm: "Reset all" })) void save({});
+        },
+      }),
+    ),
+    body,
+  );
+  return { el, dispose: off };
+}
+
 const BUILDERS: Record<SectionId, () => Section> = {
   vault: vaultSection,
   terminal: terminalSection,
+  shortcuts: shortcutsSection,
   agent: agentSection,
   openssh: opensshSection,
   sync: syncSection,
@@ -1145,6 +1368,13 @@ const BUILDERS: Record<SectionId, () => Section> = {
 };
 
 let lastSection: SectionId = "vault";
+let showMounted: ((id: SectionId) => void) | null = null;
+
+export function openSettings(section: SectionId): void {
+  lastSection = section;
+  go("settings");
+  showMounted?.(section);
+}
 
 export function settingsPage(): Page {
   return {
@@ -1185,7 +1415,9 @@ export function settingsPage(): Page {
       });
       root.append(h("div", { class: "settings" }, nav, content));
       show(lastSection);
+      showMounted = show;
       return () => {
+        showMounted = null;
         active?.dispose?.();
         active = null;
       };

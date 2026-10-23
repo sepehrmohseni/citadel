@@ -55,6 +55,20 @@ export async function refreshSnippets(): Promise<void> {
   snippets.set(await api.snippets());
 }
 
+export async function updatePrefs(patch: Partial<Prefs>): Promise<Prefs> {
+  const base = prefs.get() ?? (await api.prefsGet());
+  const next = await api.prefsSet({ ...base, ...patch });
+  prefs.set(next);
+  return next;
+}
+
+export function clearSensitive(): void {
+  hosts.set([]);
+  snippets.set([]);
+  identities.set([]);
+  tunnels.set([]);
+}
+
 export async function refreshAll(): Promise<void> {
   const [h, t, i, s, p, l] = await Promise.all([
     api.hosts(),

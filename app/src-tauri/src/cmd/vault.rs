@@ -1,15 +1,14 @@
-use std::path::PathBuf;
-
 use citadel_vault::{
     Backup, Bundle, Endpoint, Entry, Forward, KdfParams, LockState, MergeReport, list_backups,
     secret_from,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use super::{AppState, blocking};
 use crate::dto::VaultStatus;
 use crate::error::{AppError, CmdResult};
+use crate::grants::Access;
 use crate::safety;
 
 const MIN_PASSWORD: usize = 8;
@@ -47,7 +46,7 @@ pub async fn vault_status(state: State<'_, AppState>) -> CmdResult<VaultStatus> 
 
 #[derive(Serialize)]
 pub struct BackupView {
-    pub path: String,
+    pub name: String,
     pub created_ms: u64,
     pub bytes: u64,
 }
@@ -55,7 +54,11 @@ pub struct BackupView {
 impl From<Backup> for BackupView {
     fn from(b: Backup) -> Self {
         Self {
-            path: b.path.display().to_string(),
+            name: b
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
             created_ms: b.created_ms,
             bytes: b.bytes,
         }
@@ -78,13 +81,23 @@ pub async fn backup_now(state: State<'_, AppState>) -> CmdResult<BackupView> {
 #[tauri::command]
 pub async fn backup_restore(
     state: State<'_, AppState>,
-    path: String,
+    source: RestoreSource,
     password: String,
     replace: bool,
-) -> CmdResult<MergeReport> {
+) -> CmdResult<ImportOutcome> {
     let pw = secret_from(password);
     let vault = state.0.vault.clone();
     let dir = safety::backups_dir(&state.0.dirs.data);
+    let (path, trusted) = match source {
+        RestoreSource::Snapshot { name } => {
+            let found = list_backups(&dir)
+                .into_iter()
+                .find(|b| b.path.file_name().and_then(|n| n.to_str()) == Some(name.as_str()))
+                .ok_or(AppError::NotFound("snapshot"))?;
+            (found.path, true)
+        }
+        RestoreSource::File { token } => (state.0.grants.redeem(&token, Access::Read)?, false),
+    };
     blocking(move || {
         if std::fs::metadata(&path)?.len() > 128 << 20 {
             return Err(AppError::invalid("backup exceeds 128 MiB"));
@@ -93,9 +106,29 @@ pub async fn backup_restore(
         if vault.state() == LockState::Unlocked {
             vault.backup_to(&dir, safety::KEEP)?;
         }
-        Ok(vault.restore(&blob, &pw, replace)?)
+        let mut neutralized = Neutralized::default();
+        let report = vault.restore_with(&blob, &pw, replace, |entries| {
+            if trusted {
+                entries
+            } else {
+                let (kept, n) = quarantine(entries);
+                neutralized = n;
+                kept
+            }
+        })?;
+        Ok(ImportOutcome {
+            report,
+            neutralized,
+        })
     })
     .await
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RestoreSource {
+    Snapshot { name: String },
+    File { token: String },
 }
 
 #[tauri::command]
@@ -140,29 +173,40 @@ pub async fn vault_change_password(
 ) -> CmdResult<()> {
     let (cur, nxt) = (secret_from(current), secret_from(next));
     strong_enough(citadel_vault::ExposeSecret::expose_secret(&nxt))?;
+    let mut fails = state.0.unlock_gate.lock().await;
     let vault = state.0.vault.clone();
-    blocking(move || Ok(vault.change_password(&cur, &nxt, KdfParams::RECOMMENDED)?)).await
+    let res =
+        blocking(move || Ok(vault.change_password(&cur, &nxt, KdfParams::RECOMMENDED)?)).await;
+    match &res {
+        Ok(()) => *fails = 0,
+        Err(AppError::Vault(citadel_vault::VaultError::BadPassword)) => {
+            *fails = fails.saturating_add(1);
+            let exp = (*fails).saturating_sub(1).min(6);
+            tokio::time::sleep(
+                std::time::Duration::from_millis(500u64 << exp)
+                    .min(std::time::Duration::from_secs(30)),
+            )
+            .await;
+        }
+        Err(_) => {}
+    }
+    res
 }
 
 #[tauri::command]
 pub async fn vault_export(
     state: State<'_, AppState>,
-    path: String,
+    target: String,
     password: String,
 ) -> CmdResult<u64> {
     let pw = secret_from(password);
     strong_enough(citadel_vault::ExposeSecret::expose_secret(&pw))?;
+    let path = state.0.grants.redeem(&target, Access::Write)?;
     let vault = state.0.vault.clone();
     blocking(move || {
         let blob = vault.export(&pw, KdfParams::RECOMMENDED)?;
-        let path = PathBuf::from(path);
         let tmp = path.with_extension("ctdl.part");
-        std::fs::write(&tmp, &blob)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
-        }
+        safety::write_private(&tmp, &blob)?;
         std::fs::rename(&tmp, &path)?;
         Ok(blob.len() as u64)
     })
@@ -196,8 +240,18 @@ fn endpoint_ok(e: &Endpoint) -> bool {
     token(&e.host, 253).is_some()
 }
 
+const MAX_JUMPS: usize = 8;
+
+fn horizon_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .saturating_add(86_400_000)
+}
+
 pub(crate) fn quarantine(entries: Vec<Entry>) -> (Vec<Entry>, Neutralized) {
     let mut n = Neutralized::default();
+    let horizon = horizon_ms();
     let mut out = Vec::with_capacity(entries.len());
     for e in entries {
         let kept = match e {
@@ -217,6 +271,14 @@ pub(crate) fn quarantine(entries: Vec<Entry>) -> (Vec<Entry>, Neutralized) {
                         h.agent_forward = false;
                         n.agent_forward += 1;
                     }
+                    if h.ssh_alias
+                        .as_deref()
+                        .is_some_and(|a| !super::config::plain_alias(a))
+                    {
+                        h.ssh_alias = None;
+                    }
+                    h.jump.truncate(MAX_JUMPS);
+                    h.updated_ms = h.updated_ms.min(horizon);
                     h.tags.retain(|t| tidy(t, 64).is_some());
                     h.keepalive_secs = h.keepalive_secs.min(600);
                     Some(Entry::Host(h))
@@ -255,7 +317,10 @@ pub(crate) fn quarantine(entries: Vec<Entry>) -> (Vec<Entry>, Neutralized) {
             Entry::Tombstone(t) => Some(Entry::Tombstone(t)),
         };
         match kept {
-            Some(e) => out.push(e),
+            Some(mut e) => {
+                e.set_stamp(e.stamp().min(horizon));
+                out.push(e);
+            }
             None => n.rejected += 1,
         }
     }
@@ -265,11 +330,12 @@ pub(crate) fn quarantine(entries: Vec<Entry>) -> (Vec<Entry>, Neutralized) {
 #[tauri::command]
 pub async fn vault_import(
     state: State<'_, AppState>,
-    path: String,
+    source: String,
     password: String,
     replace: bool,
 ) -> CmdResult<ImportOutcome> {
     let pw = secret_from(password);
+    let path = state.0.grants.redeem(&source, Access::Read)?;
     let vault = state.0.vault.clone();
     let dir = safety::backups_dir(&state.0.dirs.data);
     blocking(move || {

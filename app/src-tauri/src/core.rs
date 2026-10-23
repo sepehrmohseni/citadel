@@ -68,6 +68,7 @@ pub enum PromptKind {
         algorithm: String,
         fingerprint: String,
         status: &'static str,
+        previous: Option<String>,
     },
     Interactive {
         host: String,
@@ -103,10 +104,70 @@ pub enum Answer {
 pub struct Prompts {
     next: AtomicU64,
     pending: Mutex<HashMap<u64, oneshot::Sender<Answer>>>,
+    same: Mutex<HashMap<String, Vec<oneshot::Sender<bool>>>>,
+}
+
+struct Leader<'a> {
+    prompts: &'a Prompts,
+    key: String,
+    accept: bool,
+}
+
+impl Drop for Leader<'_> {
+    fn drop(&mut self) {
+        for tx in lock(&self.prompts.same)
+            .remove(&self.key)
+            .unwrap_or_default()
+        {
+            let _ = tx.send(self.accept);
+        }
+    }
 }
 
 impl Prompts {
     pub async fn ask(&self, app: &AppHandle, kind: PromptKind) -> Option<Answer> {
+        let PromptKind::HostKey {
+            host,
+            port,
+            fingerprint,
+            ..
+        } = &kind
+        else {
+            return self.raise(app, kind).await;
+        };
+        let key = format!("{host}:{port}:{fingerprint}");
+        let follower = {
+            let mut same = lock(&self.same);
+            match same.get_mut(&key) {
+                Some(waiters) => {
+                    let (tx, rx) = oneshot::channel();
+                    waiters.push(tx);
+                    Some(rx)
+                }
+                None => {
+                    same.insert(key.clone(), Vec::new());
+                    None
+                }
+            }
+        };
+        if let Some(rx) = follower {
+            return tokio::time::timeout(PROMPT_TIMEOUT, rx)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .map(|accept| Answer::HostKey { accept });
+        }
+        let mut leader = Leader {
+            prompts: self,
+            key,
+            accept: false,
+        };
+        let answer = self.raise(app, kind).await;
+        leader.accept = matches!(answer, Some(Answer::HostKey { accept: true }));
+        answer
+    }
+
+    async fn raise(&self, app: &AppHandle, kind: PromptKind) -> Option<Answer> {
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         lock(&self.pending).insert(id, tx);
@@ -148,6 +209,10 @@ pub struct Core {
     pub monitors: Mutex<HashMap<u32, AbortHandle>>,
     pub prompts: Prompts,
     pub unlock_gate: tokio::sync::Mutex<u32>,
+    pub grants: crate::grants::Grants,
+    pub agent_gate: Arc<std::sync::atomic::AtomicBool>,
+    pub hotkey: Mutex<crate::hotkey::HotkeyStatus>,
+    pub starting: Mutex<std::collections::HashSet<Id>>,
     seq: AtomicU32,
     epochs: AtomicU64,
 }
@@ -172,6 +237,10 @@ impl Core {
             monitors: Mutex::new(HashMap::new()),
             prompts: Prompts::default(),
             unlock_gate: tokio::sync::Mutex::new(0),
+            grants: crate::grants::Grants::default(),
+            agent_gate: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            hotkey: Mutex::new(crate::hotkey::HotkeyStatus::default()),
+            starting: Mutex::new(std::collections::HashSet::new()),
             seq: AtomicU32::new(0),
             epochs: AtomicU64::new(0),
         }
@@ -337,6 +406,8 @@ impl Core {
         tauri::async_runtime::spawn(async move {
             loop {
                 let state = *rx.borrow_and_update();
+                core.agent_gate
+                    .store(state == LockState::Unlocked, Ordering::SeqCst);
                 let _ = core.app.emit(EV_VAULT, state);
                 if state == LockState::Unlocked {
                     core.snapshot_soon();

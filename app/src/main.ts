@@ -4,12 +4,15 @@ import { api, events, type LockState } from "./api";
 import { h } from "./dom";
 import { openPalette } from "./palette";
 import { initPrompts } from "./prompts";
-import { factories, mountShell, registerPage } from "./shell";
-import { refreshAll, wireEvents } from "./store";
-import { terminalTab } from "./terminal";
+import { restoreSession, trackSession } from "./session";
+import { factories, mountShell, registerPage, setLocked } from "./shell";
+import { clearSensitive, prefs, refreshAll, wireEvents } from "./store";
+import { setOverrides } from "./keymap";
+import { layoutTab, terminalTab, type LayoutSpec } from "./terminal";
 import { fail } from "./ui";
 import { filesTab } from "./views/files";
 import { auditPage } from "./views/audit";
+import { fleetPage } from "./views/fleet";
 import { hostsPage } from "./views/hosts";
 import { keysPage } from "./views/keys";
 import { lockScreen } from "./views/lock";
@@ -18,12 +21,15 @@ import { snippetsPage } from "./views/snippets";
 import { tunnelsPage } from "./views/tunnels";
 
 registerPage(hostsPage());
+registerPage(fleetPage());
 registerPage(tunnelsPage());
 registerPage(keysPage());
 registerPage(snippetsPage());
 registerPage(auditPage());
 registerPage(settingsPage());
 factories.terminal = terminalTab;
+factories.layout = (spec) => layoutTab(spec as LayoutSpec);
+prefs.subscribe((p) => setOverrides(p?.keybindings));
 factories.files = filesTab;
 factories.palette = openPalette;
 
@@ -33,7 +39,7 @@ syncVisibility();
 
 const root = document.getElementById("root") ?? document.body;
 const shellHost = h("div", { style: { height: "100%" } });
-const lockHost = h("div", { style: { position: "fixed", inset: "0", zIndex: "40" } });
+const lockHost = h("div", { class: "lock-layer" });
 root.append(shellHost, lockHost);
 
 let shellMounted = false;
@@ -42,6 +48,8 @@ async function unlocked(): Promise<void> {
   lockHost.replaceChildren();
   lockHost.hidden = true;
   shellHost.inert = false;
+  for (const s of document.querySelectorAll<HTMLElement>(".scrim")) s.inert = false;
+  setLocked(false);
   try {
     await refreshAll();
   } catch (e) {
@@ -50,12 +58,16 @@ async function unlocked(): Promise<void> {
   if (!shellMounted) {
     mountShell(shellHost);
     shellMounted = true;
+    trackSession();
+    void restoreSession().catch(() => undefined);
   }
 }
 
 function locked(state: LockState): void {
+  setLocked(true);
   shellHost.inert = true;
-  for (const s of document.querySelectorAll(".scrim")) s.remove();
+  for (const s of document.querySelectorAll<HTMLElement>(".scrim")) s.inert = true;
+  clearSensitive();
   lockHost.hidden = false;
   lockHost.replaceChildren(lockScreen(state !== "uninitialized", () => void unlocked()));
 }

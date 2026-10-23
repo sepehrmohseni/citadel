@@ -80,6 +80,10 @@ const ICONS: Record<string, string> = {
   check: "M5 12.5l4.5 4.5L19 7",
   warn: "M12 4l9 16H3zM12 10v4M12 17h.01",
   import: "M12 3v12M7 10l5 5 5-5M5 21h14",
+  plug: "M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4",
+  split: "M4 5h16v14H4zM12 5v14",
+  fleet: "M4 6h7v5H4zM13 6h7v5h-7zM4 13h7v5H4zM13 13h7v5h-7z",
+  keyboard: "M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M7 14h10",
 };
 
 export function icon(name: keyof typeof ICONS | string, size = 16): SVGSVGElement {

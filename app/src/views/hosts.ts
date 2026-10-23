@@ -1,9 +1,11 @@
 import { api, type AgentKey, type AuthInput, type Host, type HostInput, type Id, type LinkState } from "../api";
-import { coalesce, fuzzy, h, icon, kbd, keyOf } from "../dom";
+import { coalesce, fuzzy, h, icon, kbd } from "../dom";
+import { bind, bindings, pretty } from "../keymap";
 import { go, openFiles, openTerminal, type Page } from "../shell";
 import { hostById, hosts, identities, links, refreshHosts, refreshIdentities } from "../store";
 import { btn, confirmBox, empty, fail, field, input, modal, segmented, select, toast, toggle } from "../ui";
 import { parseSsh } from "../target";
+import { preselectFleet } from "./fleet";
 import { openTunnelForm } from "./tunnels";
 
 const RTT_POINTS = 24;
@@ -150,7 +152,13 @@ export function hostForm(existing?: Host, opts: { connect?: boolean } = {}): voi
   const wsList = h("datalist", { id: "ws-list" }, workspaces.map((w) => h("option", { value: w })));
   const workspace = input({ value: existing?.workspace ?? "", placeholder: "production", list: "ws-list" });
   const tags = input({ value: existing?.tags.join(", ") ?? "", placeholder: "postgres, eu-central" });
-  const keepalive = input({ type: "number", min: 0, max: 600, value: String(existing?.keepalive_secs ?? 15), class: "input mono" });
+  const keepCur = existing?.keepalive_secs ?? 15;
+  const keepalive = select(
+    [...new Set([0, 5, 10, 15, 30, 60, 120, 300, 600, keepCur])]
+      .sort((a, b) => a - b)
+      .map((v) => ({ value: String(v), label: v === 0 ? "off" : v < 60 ? `every ${v} s` : `every ${v / 60} min` })),
+    String(keepCur),
+  );
   const alias = input({ value: existing?.ssh_alias ?? "", placeholder: "Host alias in ~/.ssh/config", class: "input mono" });
   let agentForward = existing?.agent_forward ?? false;
   let legacy = existing?.legacy_crypto ?? false;
@@ -197,7 +205,7 @@ export function hostForm(existing?: Host, opts: { connect?: boolean } = {}): voi
         { class: "stack", style: { marginTop: "12px" } },
         h("div", { class: "grid-2" }, field("Workspace", h("div", null, workspace, wsList)), field("Tags", tags)),
         field("Bastion chain", h("div", { class: "stack", style: { gap: "8px" } }, chainEl, others.length ? addJump : null), "Hops are traversed in order through direct-tcpip channels."),
-        h("div", { class: "grid-2" }, field("Keepalive (seconds)", keepalive, "0 disables heartbeats."), field("SSH config alias", alias)),
+        h("div", { class: "grid-2" }, field("Keepalive", keepalive, "Heartbeats keep NAT and firewalls from dropping idle sessions."), field("SSH config alias", alias)),
         toggle(agentForward, "Forward agent (exposes only this host's key)", (v) => {
           agentForward = v;
         }),
@@ -416,33 +424,27 @@ export function hostsPage(): Page {
           searchInput.blur();
         }
       });
-      const onKey = (e: KeyboardEvent) => {
-        if (root.hidden || root.closest("[hidden]") || document.querySelector(".scrim")) return;
-        const a = document.activeElement as HTMLElement | null;
-        if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.closest(".xterm"))) return;
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
-        const x = current();
-        const act: Record<string, () => void> = {
-          j: () => move(1),
-          ArrowDown: () => move(1),
-          k: () => move(-1),
-          ArrowUp: () => move(-1),
-          Enter: () => x && openTerminal(x.id),
-          f: () => x && openFiles(x.id),
-          e: () => x && hostForm(x),
-          t: () => x && openTunnelForm(undefined, x.id),
-          d: () => x && void removeHost(x),
-          n: () => hostForm(),
-          i: () => go("settings"),
-          "/": () => searchInput.focus(),
-        };
-        const fn = act[keyOf(e)];
-        if (fn) {
-          e.preventDefault();
-          fn();
-        }
+      const here = (fn: () => void) => () => {
+        if (root.hidden || root.closest("[hidden]")) return false;
+        fn();
       };
-      window.addEventListener("keydown", onKey);
+      const keys = [
+        bind("host.down", here(() => move(1))),
+        bind("host.up", here(() => move(-1))),
+        bind("host.connect", here(() => { const x = current(); if (x) openTerminal(x.id); })),
+        bind("host.files", here(() => { const x = current(); if (x) openFiles(x.id); })),
+        bind("host.edit", here(() => { const x = current(); if (x) hostForm(x); })),
+        bind("host.tunnel", here(() => { const x = current(); if (x) openTunnelForm(undefined, x.id); })),
+        bind("host.delete", here(() => { const x = current(); if (x) void removeHost(x); })),
+        bind("host.new", here(() => hostForm())),
+        bind("host.import", here(() => go("settings"))),
+        bind("host.filter", here(() => searchInput.focus())),
+        bind("host.fleet", here(() => {
+          const x = current();
+          preselectFleet(x ? [x.id] : []);
+          go("fleet");
+        })),
+      ];
       root.append(
         h(
           "div",
@@ -462,12 +464,16 @@ export function hostsPage(): Page {
             h(
               "div",
               { class: "hints" },
-              h("span", null, kbd("j"), kbd("k"), "move"),
-              h("span", null, kbd("⏎"), "connect"),
-              h("span", null, kbd("f"), "files"),
-              h("span", null, kbd("t"), "tunnel"),
-              h("span", null, kbd("e"), "edit"),
-              h("span", null, kbd("n"), "new"),
+              ...(
+                [
+                  ["host.down", "move"],
+                  ["host.connect", "connect"],
+                  ["host.files", "files"],
+                  ["host.fleet", "fleet run"],
+                  ["host.edit", "edit"],
+                  ["host.new", "new"],
+                ] as const
+              ).map(([id, what]) => h("span", null, ...bindings(id).slice(0, 1).map((b) => kbd(...pretty(b))), what)),
             ),
           ),
           content,
@@ -487,7 +493,7 @@ export function hostsPage(): Page {
       const unsubs = [hosts.subscribe(render), links.subscribe(later, false), identities.subscribe(later, false), () => root.removeEventListener("page:show", onShow)];
       void refreshHosts().catch((e) => fail(e));
       return () => {
-        window.removeEventListener("keydown", onKey);
+        for (const off of keys) off();
         for (const u of unsubs) u();
       };
     },

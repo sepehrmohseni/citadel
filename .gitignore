@@ -4,5 +4,8 @@
 /app/src-tauri/gen
 *.redb
 *.ctdl
+!crates/citadel-vault/tests/fixtures/*.redb
+!crates/citadel-vault/tests/fixtures/*.ctdl
 .DS_Store
 e2e-artifacts
+.claude/worktrees/

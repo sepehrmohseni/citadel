@@ -15,6 +15,26 @@ Documentation: <https://sepehrmohseni.github.io/citadel/>
 Status: pre-release (0.1.0). File formats are versioned but may change before
 1.0.
 
+## Install
+
+Linux and macOS:
+
+```sh
+curl -fsSL https://sepehrmohseni.github.io/citadel/install.sh | sh
+```
+
+Windows (PowerShell, no administrator rights needed):
+
+```powershell
+irm https://sepehrmohseni.github.io/citadel/install.ps1 | iex
+```
+
+The scripts fetch the latest release, verify it against the release's
+`SHA256SUMS`, and install it with a Start menu entry and desktop shortcut on
+Windows, an Applications bundle on macOS, and a package or AppImage with a
+menu entry on Linux. Manual downloads, uninstalling, unsigned-build warnings
+and signing are covered in [docs/INSTALL.md](docs/INSTALL.md).
+
 ## Features
 
 - Encrypted local vault: Argon2id key derivation, XChaCha20-Poly1305 per
@@ -81,6 +101,23 @@ Status: pre-release (0.1.0). File formats are versioned but may change before
   all animation pauses while the window is hidden.
 - Replication over S3-compatible storage, WebDAV or Git, with ETag/If-Match
   optimistic concurrency and last-writer-wins merging.
+- Fleet run: one command executed on many hosts at once over each host's own
+  route and identity, with per-host exit codes and timings, identical output
+  grouped, failures sorted first, and a confirmation for destructive commands
+  or more than ten hosts.
+- Remote ports: Citadel lists the TCP listeners on a server (`ss` or
+  `netstat`) and offers to forward a newly opened port, such as a dev server,
+  to localhost and open it in the browser with one click.
+- Split panes: any terminal tab splits right or down, panes resize by drag,
+  and the tabs and layouts reopen on the next start. Background panes connect
+  only when first shown.
+- A global shortcut (Ctrl+Alt+Space by default) shows or hides Citadel from any
+  application. Every in-app shortcut can be rebound, removed or reset in
+  Settings, with conflict detection and multi-key sequences. Inside a terminal,
+  Ctrl and Alt with a letter always reach the shell; app shortcuts there use
+  Ctrl+Shift.
+- Settings are chosen, not typed: installed monospace fonts are listed with a
+  live sample, sizes use steppers, and limits use presets.
 
 ## Specifications
 
@@ -183,6 +220,14 @@ right-to-left rendering with both renderers. `app/e2e/perf.mjs` reports idle
 CPU, memory of the whole process tree, a 10 MB output flood and the time from
 `Ctrl+C` to a prompt during `yes`.
 
+`app/e2e/features.mjs` covers the newer workflows with real key events: a
+Fleet run over three hosts with grouped success and failure, splitting and
+closing panes, `Ctrl+W` deleting a word in the shell instead of closing the
+tab, a server port detected and forwarded end to end with an HTTP request,
+rebinding a shortcut through the recorder, picking an installed font, the
+global shortcut hiding and showing the window, and the split layout coming
+back after a restart.
+
 On Linux with Xvfb, `app/e2e/ci.sh` sets up a throwaway `sshd` and runs the
 scenarios; CI uploads the screenshots as an artifact.
 
@@ -194,7 +239,13 @@ storage change that would orphan saved data fails CI instead of reaching users.
 
 Imported `.ctdl` bundles are quarantined: every record is validated, agent
 forwarding and tunnel autostart are switched off, and trusted host keys are
-dropped so each server is verified again on first connect. Sync blobs are not
+dropped so each server is verified again on first connect. Restoring a backup
+file chosen from outside the snapshot folder goes through the same quarantine.
+
+The webview never names a local file. Open and save dialogs run in the Rust
+core, which hands the interface a single-use token for the chosen path; files
+dropped onto the window are accepted only when the operating system reported
+that drop. The webview has no file dialog, file system or shell permission. Sync blobs are not
 quarantined because they are authenticated by the vault's own data key.
 Consecutive failed unlocks back off exponentially up to 30 seconds.
 

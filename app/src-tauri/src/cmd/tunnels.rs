@@ -87,26 +87,30 @@ pub async fn tunnel_save(state: State<'_, AppState>, input: TunnelInput) -> CmdR
     }
     let host = parse_id(&input.host)?;
     let vault = core.vault.clone();
-    let saved = blocking(move || {
+    let (saved, rewired) = blocking(move || {
         vault
             .get::<HostProfile>(host)?
             .ok_or(AppError::NotFound("host"))?;
-        let mut t = match &input.id {
-            Some(raw) => vault
-                .get::<TunnelSpec>(parse_id(raw)?)?
-                .ok_or(AppError::NotFound("tunnel"))?,
-            None => TunnelSpec::new(&label, host, input.forward.clone())?,
+        let (mut t, rewired) = match &input.id {
+            Some(raw) => {
+                let t = vault
+                    .get::<TunnelSpec>(parse_id(raw)?)?
+                    .ok_or(AppError::NotFound("tunnel"))?;
+                let rewired = t.host != host || t.forward != input.forward;
+                (t, rewired)
+            }
+            None => (TunnelSpec::new(&label, host, input.forward.clone())?, false),
         };
         t.label = label;
         t.host = host;
         t.forward = input.forward;
         t.autostart = input.autostart;
         vault.put(&mut t)?;
-        Ok(t)
+        Ok((t, rewired))
     })
     .await?;
     let running = lock(&core.tunnels).contains_key(&saved.id);
-    if running {
+    if running && rewired {
         halt(&core, saved.id);
         start(&core, &saved).await?;
     }
@@ -156,7 +160,22 @@ struct TunnelEvent {
     stats: Option<citadel_ssh::MeterSnapshot>,
 }
 
+struct Starting<'a> {
+    core: &'a Core,
+    id: Id,
+}
+
+impl Drop for Starting<'_> {
+    fn drop(&mut self) {
+        lock(&self.core.starting).remove(&self.id);
+    }
+}
+
 async fn start(core: &Arc<Core>, spec: &TunnelSpec) -> CmdResult<()> {
+    if lock(&core.tunnels).contains_key(&spec.id) || !lock(&core.starting).insert(spec.id) {
+        return Ok(());
+    }
+    let _starting = Starting { core, id: spec.id };
     let handle = core.acquire(spec.host);
     let tunnel = match Tunnel::open(spec_of(&spec.forward), handle).await {
         Ok(t) => t,

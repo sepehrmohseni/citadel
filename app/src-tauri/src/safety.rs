@@ -32,6 +32,20 @@ fn private(_path: &Path, _mode: u32) -> io::Result<()> {
     Ok(())
 }
 
+pub fn write_private(path: &Path, body: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(body)?;
+    f.sync_all()
+}
+
 fn copy_private(from: &Path, to: &Path) -> io::Result<()> {
     let tmp = to.with_extension("part");
     fs::copy(from, &tmp)?;

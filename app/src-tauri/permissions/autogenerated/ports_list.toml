@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ports-list"
+description = "Enables the ports_list command without any pre-configured scope."
+commands.allow = ["ports_list"]
+
+[[permission]]
+identifier = "deny-ports-list"
+description = "Denies the ports_list command without any pre-configured scope."
+commands.deny = ["ports_list"]

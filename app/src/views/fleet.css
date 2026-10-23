@@ -1,0 +1,284 @@
+.fleet-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.fleet-pick {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 210px);
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+}
+
+.fleet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--fg-1);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.chip-btn:hover,
+.chip-btn.on {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.chip-btn .n {
+  color: var(--fg-3);
+}
+
+.fleet-hosts {
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+  overflow: auto;
+}
+
+.fleet-host {
+  display: grid;
+  grid-template-columns: 30px 10px minmax(0, 1fr);
+  grid-template-areas: "box dot name" "box dot addr";
+  align-items: center;
+  gap: 0 8px;
+  padding: 6px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg-1);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.fleet-host:hover {
+  background: var(--bg-3);
+}
+
+.fleet-host.on {
+  color: var(--fg);
+}
+
+.fleet-host .box {
+  grid-area: box;
+  color: var(--fg-3);
+}
+
+.fleet-host.on .box {
+  color: var(--accent);
+}
+
+.fleet-host .dot {
+  grid-area: dot;
+}
+
+.fleet-host .name {
+  grid-area: name;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-host .addr {
+  grid-area: addr;
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-2);
+  color: var(--accent);
+}
+
+.fleet-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.fleet-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+}
+
+.fleet-prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.fleet-prompt .prompt {
+  padding-top: 9px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.fleet-cmd {
+  flex: 1;
+  min-height: 74px;
+  resize: vertical;
+  font-size: 14px;
+}
+
+.fleet-compose .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fleet-compose .spacer,
+.fleet-summary .spacer {
+  flex: 1;
+}
+
+.fleet-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  font-size: 13px;
+}
+
+.fleet-summary .s-ok {
+  color: var(--ok);
+}
+
+.fleet-summary .s-bad {
+  color: var(--danger);
+}
+
+.fleet-summary .s-run {
+  color: var(--warn);
+}
+
+.fleet-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fleet-filter .toggle {
+  margin-left: auto;
+}
+
+.fleet-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fleet-card {
+  border: 1px solid var(--line-2);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+}
+
+.fleet-card header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.fleet-card .g {
+  width: 14px;
+  font-weight: 700;
+}
+
+.fleet-card .who {
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-card.st-ok {
+  border-left-color: var(--ok);
+}
+
+.fleet-card.st-ok .g {
+  color: var(--ok);
+}
+
+.fleet-card.st-fail,
+.fleet-card.st-error {
+  border-left-color: var(--danger);
+}
+
+.fleet-card.st-fail .g,
+.fleet-card.st-error .g {
+  color: var(--danger);
+}
+
+.fleet-card.st-running,
+.fleet-card.st-queued {
+  border-left-color: var(--warn);
+}
+
+.fleet-card.st-running .g {
+  color: var(--warn);
+}
+
+.fleet-out {
+  max-height: 320px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  color: var(--fg-1);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.fleet-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .fleet-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-pick {
+    position: static;
+    max-height: 340px;
+  }
+}

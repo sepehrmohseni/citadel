@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use russh::keys::ssh_encoding::Encode;
 use russh::keys::ssh_key::Signature;
@@ -6,7 +7,7 @@ use russh::keys::ssh_key::private::KeypairData;
 use russh::keys::{HashAlg, PrivateKey, PublicKey, signature};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::auth::{self, AgentEndpoint, Credential};
+use crate::auth::{self, AgentEndpoint, Credential, Used};
 use crate::{Result, TransportError};
 
 const MAX_FRAME: usize = 256 * 1024;
@@ -38,12 +39,45 @@ impl ForwardAgent {
                 endpoint: endpoint.clone(),
                 fingerprint: fingerprint.clone(),
             },
-            Credential::Auto { endpoint, .. } => Self::Upstream {
-                endpoint: endpoint.clone(),
-                fingerprint: None,
-            },
-            Credential::Password(_) | Credential::Interactive(_) => Self::Empty,
+            Credential::Auto { .. } | Credential::Password(_) | Credential::Interactive(_) => {
+                Self::Empty
+            }
         }
+    }
+}
+
+pub(crate) struct ForwardSlot {
+    agent: RwLock<Arc<ForwardAgent>>,
+    gate: Option<Arc<AtomicBool>>,
+}
+
+impl ForwardSlot {
+    pub fn new(cred: &Credential, gate: Option<Arc<AtomicBool>>) -> Self {
+        Self {
+            agent: RwLock::new(Arc::new(ForwardAgent::for_credential(cred))),
+            gate,
+        }
+    }
+
+    pub fn settle(&self, used: &Used) {
+        let next = match used {
+            Used::File(k) => ForwardAgent::Key(k.clone()),
+            Used::Agent {
+                endpoint,
+                fingerprint,
+            } => ForwardAgent::Upstream {
+                endpoint: endpoint.clone(),
+                fingerprint: Some(fingerprint.clone()),
+            },
+        };
+        *self.agent.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(next);
+    }
+
+    fn current(&self) -> Arc<ForwardAgent> {
+        self.agent
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(self: Arc<Self>, mut io: S) {
@@ -61,7 +95,13 @@ impl ForwardAgent {
             if io.read_exact(&mut frame).await.is_err() {
                 return;
             }
-            let reply = self.respond(&frame).await.unwrap_or_else(|e| {
+            let open = self.gate.as_ref().is_none_or(|g| g.load(Ordering::SeqCst));
+            let reply = if open {
+                self.current().respond(&frame).await
+            } else {
+                Err(TransportError::Agent("vault is locked".into()))
+            };
+            let reply = reply.unwrap_or_else(|e| {
                 tracing::debug!("forwarded agent request refused: {e}");
                 vec![FAILURE]
             });
@@ -76,7 +116,9 @@ impl ForwardAgent {
             }
         }
     }
+}
 
+impl ForwardAgent {
     async fn exposed(&self) -> Result<Vec<PublicKey>> {
         match self {
             Self::Key(k) => Ok(vec![k.public_key().clone()]),

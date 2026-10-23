@@ -1,6 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, Channel, errText, type DirEntry, type Id, type Progress } from "../api";
+import { api, Channel, errText, type DirEntry, type Id, type Progress, type Picked } from "../api";
 import { bytes, clear, h, icon, isMac, keyOf, rate as fmtRate } from "../dom";
 import { retitleTab, type Tab } from "../shell";
 import { hostById } from "../store";
@@ -160,7 +159,7 @@ export function filesTab(host: Id): Tab {
   }
   const header = h("div", { class: "fp-head" }, headCells.name, headCells.size, headCells.mtime, headCells.mode);
   const spacer = h("div", { class: "fp-spacer" });
-  const scroller = h("div", { class: "fp-scroll", tabindex: 0, role: "grid", "aria-label": "Remote files" }, spacer);
+  const scroller = h("div", { class: "fp-scroll", tabindex: 0, role: "grid", "aria-label": "Remote files", "data-typeahead": "" }, spacer);
   const notice = h("div", { class: "fp-notice", hidden: true });
   const bar = h("div", { class: "fp-loadbar", hidden: true });
   const status = h("div", { class: "fp-status" });
@@ -492,7 +491,12 @@ export function filesTab(host: Id): Tab {
         paint();
         return;
       } catch {
-        void edit(e);
+        try {
+          const real = await api.sftpRealpath(host, pathOf(e));
+          void edit(e, real);
+        } catch (err) {
+          fail(err, `Cannot resolve ${e.name}`);
+        }
         return;
       }
     }
@@ -596,10 +600,10 @@ export function filesTab(host: Id): Tab {
     pump();
   };
 
-  const uploadPaths = async (paths: string[]) => {
+  const uploadPaths = async (paths: Picked[]) => {
     if (!paths.length || !cwd) return;
     const target = cwd;
-    const names = paths.map(basename);
+    const names = paths.map((p) => p.name);
     const clashes = names.filter((n) => entries.some((e) => e.name === n));
     if (clashes.length) {
       const list = clashes.length > 3 ? `${clashes.slice(0, 3).join(", ")} and ${clashes.length - 3} more` : clashes.join(", ");
@@ -607,17 +611,17 @@ export function filesTab(host: Id): Tab {
       if (!ok) return;
     }
     paths.forEach((local, i) => {
-      const name = names[i] ?? basename(local);
-      enqueue("up", name, (ch) => api.sftpUpload(host, local, join(target, name), ch));
+      const name = names[i] ?? local.name;
+      enqueue("up", name, (ch) => api.sftpUpload(host, local.token, join(target, name), ch));
     });
   };
 
   const pickUpload = async () => {
     if (!cwd) return;
     try {
-      const picked = await open({ multiple: true, directory: false, title: `Upload to ${cwd}` });
-      if (!picked) return;
-      await uploadPaths(Array.isArray(picked) ? picked : [picked]);
+      const picked = await api.pickOpen(`Upload to ${cwd}`, [], true);
+      if (!picked.length) return;
+      await uploadPaths(picked);
     } catch (e) {
       fail(e);
     }
@@ -629,10 +633,10 @@ export function filesTab(host: Id): Tab {
       return;
     }
     try {
-      const target = await save({ defaultPath: e.name, title: `Download ${e.name}` });
+      const target = await api.pickSave(`Download ${e.name}`, e.name, []);
       if (!target) return;
       const remote = pathOf(e);
-      enqueue("down", e.name, (ch) => api.sftpDownload(host, remote, target, ch));
+      enqueue("down", e.name, (ch) => api.sftpDownload(host, remote, target.token, ch));
     } catch (err) {
       fail(err);
     }
@@ -859,13 +863,16 @@ export function filesTab(host: Id): Tab {
       else if (p.type === "leave") hideDrop();
       else {
         hideDrop();
-        void uploadPaths(p.paths);
+        void api
+          .grantDropped(p.paths)
+          .then(uploadPaths)
+          .catch((e) => fail(e));
       }
     })
     .catch(() => () => undefined);
 
-  const edit = async (e: DirEntry) => {
-    const path = pathOf(e);
+  const edit = async (e: DirEntry, resolved?: string) => {
+    const path = resolved ?? pathOf(e);
     let text: string;
     try {
       text = await api.sftpRead(host, path);

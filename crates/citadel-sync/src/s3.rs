@@ -76,7 +76,7 @@ impl S3 {
         }
         let tag = http::etag(resp.headers())
             .ok_or_else(|| SyncError::Transport("S3 response carried no ETag".into()))?;
-        Ok(Some((resp.bytes().await?.to_vec(), tag)))
+        Ok(Some((http::body(resp, http::MAX_BODY).await?, tag)))
     }
 
     async fn put(&self, blob: &[u8], expected: Option<&str>) -> Result<Version> {

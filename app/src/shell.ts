@@ -1,5 +1,6 @@
 import { api, type Id } from "./api";
-import { clear, coalesce, h, icon, isMac, kbd, keyOf, modKey } from "./dom";
+import { clear, coalesce, h, icon, isMac, kbd } from "./dom";
+import { COMMANDS, bind, bindings, install, onKeymapChange, pretty } from "./keymap";
 import { hosts, identities, links, snippets, tunnels } from "./store";
 import { fail, modal } from "./ui";
 
@@ -21,8 +22,12 @@ export interface Tab {
   tone?: TabTone;
   onShow?(): void;
   onHide?(): void;
+  snapshot?(): TabSnapshot;
+  closePane?(): boolean;
   dispose(): void;
 }
+
+export type TabSnapshot = { kind: "term"; layout: unknown } | { kind: "files"; host: Id };
 
 type TabFactory = (host: Id) => Tab;
 
@@ -40,12 +45,41 @@ let railFoot!: HTMLElement;
 let statusLeft!: HTMLElement;
 let statusRight!: HTMLElement;
 let clock: ReturnType<typeof setInterval> | undefined;
-let leaderAt = 0;
+let locked = false;
 const tabListeners = new Set<() => void>();
+const closed: TabSnapshot[] = [];
 
-const HOTKEYS: Record<string, string> = { hosts: "h", tunnels: "t", keys: "k", snippets: "s", audit: "a", settings: "," };
+export const factories: {
+  terminal?: TabFactory;
+  files?: TabFactory;
+  palette?: () => void;
+  layout?: (spec: unknown) => Tab | null;
+} = {};
 
-export const factories: { terminal?: TabFactory; files?: TabFactory; palette?: () => void } = {};
+const unlockWaiters: (() => void)[] = [];
+
+export function setLocked(on: boolean): void {
+  locked = on;
+  if (!on) for (const fn of unlockWaiters.splice(0)) fn();
+}
+
+export function whenUnlocked(): Promise<void> {
+  return locked ? new Promise((resolve) => unlockWaiters.push(resolve)) : Promise.resolve();
+}
+
+export function isLocked(): boolean {
+  return locked;
+}
+
+export function notifyLayout(): void {
+  emitTabs();
+}
+
+function railKey(page: string): string {
+  const b = bindings(`go.${page}`)[0];
+  const steps = b?.split(" ") ?? [];
+  return (steps.length === 2 ? steps[1] : "")?.toLowerCase() ?? "";
+}
 
 export function registerPage(p: Page): void {
   pages.push(p);
@@ -127,6 +161,11 @@ export function closeTab(key: string): void {
   if (i < 0) return;
   const [t] = tabs.splice(i, 1);
   if (!t) return;
+  const snap = t.snapshot?.();
+  if (snap) {
+    closed.push(snap);
+    if (closed.length > 10) closed.shift();
+  }
   t.dispose();
   t.el.remove();
   if (activeTab === key) {
@@ -155,6 +194,18 @@ export function openFiles(host: Id): void {
   if (factories.files) openTab(factories.files(host));
 }
 
+export function openSnapshot(snap: TabSnapshot): boolean {
+  if (snap.kind === "files") {
+    if (!hosts.get().some((x) => x.id === snap.host)) return false;
+    openFiles(snap.host);
+    return true;
+  }
+  const tab = factories.layout?.(snap.layout);
+  if (!tab) return false;
+  openTab(tab);
+  return true;
+}
+
 function count(id: string): string {
   switch (id) {
     case "hosts":
@@ -180,8 +231,8 @@ function renderRail(): void {
     railNav.append(
       h(
         "button",
-        { class: `rail-btn${on ? " on" : ""}`, title: `${p.title} (g ${HOTKEYS[p.id] ?? ""})`, "aria-label": p.title, dataset: { page: p.id }, onClick: () => go(p.id) },
-        h("span", { class: "rail-key" }, HOTKEYS[p.id] ?? "·"),
+        { class: `rail-btn${on ? " on" : ""}`, title: `${p.title}${railKey(p.id) ? ` (g ${railKey(p.id)})` : ""}`, "aria-label": p.title, dataset: { page: p.id }, onClick: () => go(p.id) },
+        h("span", { class: "rail-key" }, railKey(p.id) || "·"),
         h("span", { class: "rail-text" }, p.title.toLowerCase()),
         h("span", { class: "rail-count" }, count(p.id)),
       ),
@@ -208,7 +259,7 @@ function renderTabs(): void {
         draggable: "true",
         role: "tab",
         tabindex: 0,
-        title: `${t.title}${i < 9 ? ` (${modKey}+${i + 1})` : ""}`,
+        title: `${t.title}${i < 9 && bindings(`tab.${i + 1}`)[0] ? ` (${pretty(bindings(`tab.${i + 1}`)[0] ?? "").join(" ")})` : ""}`,
         onMousedown: (e: MouseEvent) => {
           if (e.button === 1) {
             e.preventDefault();
@@ -276,106 +327,87 @@ function renderStatus(): void {
     rtt !== null ? h("span", { class: "status-item" }, "rtt ", h("b", null, rtt < 1 ? "<1ms" : `${rtt}ms`)) : h("span"),
   );
   statusRight.replaceChildren(
-    h("span", { class: "status-item" }, kbd("?"), " keys"),
-    h("span", { class: "status-item" }, kbd(modKey, "K"), " palette"),
+    h("span", { class: "status-item" }, kbd(...pretty(bindings("help")[0] ?? "?")), " keys"),
+    h("span", { class: "status-item" }, kbd(...pretty(bindings("palette")[0] ?? "")), " palette"),
     h("span", { class: "status-item" }, h("b", null, hhmm())),
   );
   renderRail();
 }
 
-function typing(): boolean {
-  const a = document.activeElement as HTMLElement | null;
-  if (!a) return false;
-  return a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable || !!a.closest(".xterm");
-}
-
 export function showHelp(): void {
-  const row = (keys: HTMLElement, what: string) => h("div", { class: "help-row" }, h("span", null, what), keys);
+  const groups = new Map<string, HTMLElement[]>();
+  for (const c of COMMANDS) {
+    const b = bindings(c.id);
+    if (!b.length) continue;
+    const list = groups.get(c.group) ?? [];
+    list.push(h("div", { class: "help-row" }, h("span", null, c.label), h("span", { class: "help-keys" }, b.slice(0, 2).map((x) => kbd(...pretty(x))))));
+    groups.set(c.group, list);
+  }
   modal({
     title: "Keyboard",
     wide: true,
     body: h(
       "div",
       { class: "help-grid" },
-      h("h4", null, "Anywhere"),
-      row(kbd(modKey, "K"), "command palette"),
-      row(kbd("g", "h"), "go to hosts"),
-      row(kbd("g", "t"), "go to tunnels"),
-      row(kbd("g", "k"), "go to keys"),
-      row(kbd("g", "s"), "go to snippets"),
-      row(kbd("g", "a"), "go to audit"),
-      row(kbd("g", ","), "go to settings"),
-      row(kbd(modKey, "1-9"), "switch tab"),
-      row(kbd(modKey, "W"), "close tab"),
-      row(kbd("Ctrl", "Tab"), "next tab"),
-      row(kbd("?"), "this sheet"),
-      h("h4", null, "Hosts"),
-      row(kbd("j", "k"), "move selection"),
-      row(kbd("⏎"), "connect"),
-      row(kbd("f"), "open files"),
-      row(kbd("e"), "edit host"),
-      row(kbd("n"), "new host"),
-      row(kbd("d"), "delete host"),
-      row(kbd("/"), "filter"),
-      row(kbd("i"), "import ~/.ssh/config"),
-      h("h4", null, "Terminal"),
-      row(kbd(isMac ? "⌘" : "Ctrl+Shift", "F"), "find in scrollback"),
-      row(kbd(isMac ? "⌘" : "Ctrl+Shift", "C"), "copy selection"),
-      row(kbd(isMac ? "⌘" : "Ctrl+Shift", "V"), "paste (guarded)"),
-      row(kbd(isMac ? "⌘" : "Ctrl+Shift", "B"), "broadcast input"),
-      row(kbd(isMac ? "⌘" : "Ctrl+Shift", "R"), "record session"),
-      row(kbd("⏎"), "reconnect closed session"),
+      [...groups.entries()].flatMap(([g, rows]) => [h("h4", null, g), ...rows]),
+      h("p", { class: "muted help-foot" }, "Change any of these in Settings → Shortcuts."),
     ),
   });
 }
 
-function onKey(e: KeyboardEvent): void {
-  if (document.querySelector(".scrim")) return;
-  const key = keyOf(e);
-  const mod = isMac ? e.metaKey : e.ctrlKey;
-  if (mod && !e.shiftKey && !e.altKey && key.toLowerCase() === "k") {
-    e.preventDefault();
-    factories.palette?.();
-    return;
+function bindAppCommands(): (() => void)[] {
+  const offs = [
+    bind("palette", () => {
+      factories.palette?.();
+    }),
+    bind("help", () => showHelp()),
+    bind("lock", () => {
+      void api.vaultLock().catch((e) => fail(e));
+    }),
+    bind("tab.next", () => {
+      if (!tabs.length) return false;
+      const i = tabs.findIndex((t) => t.key === activeTab);
+      const next = tabs[(i + 1 + tabs.length) % tabs.length];
+      if (next) focusTab(next.key);
+    }),
+    bind("tab.prev", () => {
+      if (!tabs.length) return false;
+      const i = tabs.findIndex((t) => t.key === activeTab);
+      const next = tabs[(Math.max(i, 0) - 1 + tabs.length) % tabs.length];
+      if (next) focusTab(next.key);
+    }),
+    bind("tab.close", () => {
+      const t = currentTab();
+      if (!t) return false;
+      if (t.closePane?.()) return;
+      closeTab(t.key);
+    }),
+    bind("tab.reopen", () => {
+      while (closed.length) {
+        const snap = closed.pop();
+        if (snap && openSnapshot(snap)) return;
+      }
+      return false;
+    }),
+  ];
+  for (let n = 1; n <= 9; n++) {
+    offs.push(
+      bind(`tab.${n}`, () => {
+        const t = tabs[n - 1];
+        if (!t) return false;
+        focusTab(t.key);
+      }),
+    );
   }
-  if (mod && !e.shiftKey && /^[1-9]$/.test(key)) {
-    const t = tabs[Number(key) - 1];
-    if (t) {
-      e.preventDefault();
-      focusTab(t.key);
-    }
-    return;
+  for (const page of ["hosts", "fleet", "tunnels", "keys", "snippets", "audit", "settings"]) {
+    offs.push(
+      bind(`go.${page}`, () => {
+        if (!pages.some((p) => p.id === page)) return false;
+        go(page);
+      }),
+    );
   }
-  if (mod && key.toLowerCase() === "w" && !e.shiftKey && activeTab) {
-    e.preventDefault();
-    closeTab(activeTab);
-    return;
-  }
-  if (e.ctrlKey && e.key === "Tab" && tabs.length) {
-    e.preventDefault();
-    const i = tabs.findIndex((t) => t.key === activeTab);
-    const next = tabs[(i + (e.shiftKey ? tabs.length - 1 : 1) + tabs.length) % tabs.length];
-    if (next) focusTab(next.key);
-    return;
-  }
-  if (e.ctrlKey || e.metaKey || e.altKey || typing()) return;
-  if (key === "?") {
-    e.preventDefault();
-    showHelp();
-    return;
-  }
-  if (key === "g") {
-    leaderAt = Date.now();
-    return;
-  }
-  if (Date.now() - leaderAt < 1200) {
-    const target = Object.entries(HOTKEYS).find(([, k]) => k === key)?.[0];
-    leaderAt = 0;
-    if (target) {
-      e.preventDefault();
-      go(target);
-    }
-  }
+  return offs;
 }
 
 export function mountShell(root: HTMLElement): () => void {
@@ -397,7 +429,7 @@ export function mountShell(root: HTMLElement): () => void {
     { class: "palette-trigger", onClick: () => factories.palette?.() },
     h("span", { class: "prompt" }, "›"),
     h("span", { class: "label" }, "jump to host, action, snippet"),
-    kbd(modKey, "K"),
+    kbd(...pretty(bindings("palette")[0] ?? "")),
   );
   const shell = h(
     "div",
@@ -424,11 +456,19 @@ export function mountShell(root: HTMLElement): () => void {
     onTabsChanged(renderRail),
   ];
   clock = setInterval(renderStatus, 15000);
-  window.addEventListener("keydown", onKey, true);
+  const uninstall = install(() => locked || !!document.querySelector(".scrim.in"));
+  const unbind = bindAppCommands();
+  const unwatchKeys = onKeymapChange(() => {
+    renderRail();
+    renderTabs();
+    renderStatus();
+  });
   const first = pages[0];
   if (first) go(first.id);
   return () => {
-    window.removeEventListener("keydown", onKey, true);
+    uninstall();
+    for (const off of unbind) off();
+    unwatchKeys();
     if (clock) clearInterval(clock);
     for (const u of unsubs) u();
     for (const t of tabs.splice(0)) {

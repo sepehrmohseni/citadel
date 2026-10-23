@@ -361,7 +361,11 @@ impl Vault {
             "{BACKUP_PREFIX}{created_ms:013}-{generation:x}{BACKUP_EXT}"
         ));
         write_atomic(&path, &blob)?;
-        for old in list_backups(dir).into_iter().skip(keep.max(1)) {
+        let others: Vec<Backup> = list_backups(dir)
+            .into_iter()
+            .filter(|b| b.path != path)
+            .collect();
+        for old in others.into_iter().skip(keep.max(1).saturating_sub(1)) {
             let _ = fs::remove_file(&old.path);
         }
         Ok(Backup {
@@ -378,11 +382,22 @@ impl Vault {
         password: &SecretString,
         replace: bool,
     ) -> Result<MergeReport> {
+        self.restore_with(blob, password, replace, |entries| entries)
+    }
+
+    pub fn restore_with(
+        &self,
+        blob: &[u8],
+        password: &SecretString,
+        replace: bool,
+        vet: impl FnOnce(Vec<Entry>) -> Vec<Entry>,
+    ) -> Result<MergeReport> {
         let sealed = Sealed::parse(blob)?;
         if self.state() == LockState::Uninitialized {
             let dek = sealed.header.unwrap_key(password)?;
             let cipher = crypto::cipher(&dek);
-            let bundle = sealed.open(&cipher)?;
+            let mut bundle = sealed.open(&cipher)?;
+            bundle.entries = vet(bundle.entries);
             let txn = self.db.begin_write()?;
             write_header(&txn, &sealed.header)?;
             for name in LIVE_TABLES.into_iter().chain([Tombstone::TABLE]) {
@@ -405,10 +420,11 @@ impl Vault {
             Err(VaultError::Tampered) => Ok(None),
             Err(e) => Err(e),
         })?;
-        let bundle = match local {
+        let mut bundle = match local {
             Some(b) => b,
             None => sealed.open(&crypto::cipher(&sealed.header.unwrap_key(password)?))?,
         };
+        bundle.entries = vet(bundle.entries);
         if replace {
             self.replace(&bundle.entries)
         } else {
@@ -487,10 +503,17 @@ impl Vault {
         next: &SecretString,
         kdf: KdfParams,
     ) -> Result<()> {
+        if !self.is_unlocked() {
+            return Err(VaultError::Locked);
+        }
+        let header = self.header()?;
+        let dek = header.unwrap_key(current)?;
+        let fresh = KeyHeader::wrap(next, &dek, kdf, self.tick())?;
         let mut guard = self.guard();
         let sess = guard.as_mut().ok_or(VaultError::Locked)?;
-        let dek = self.header()?.unwrap_key(current)?;
-        let fresh = KeyHeader::wrap(next, &dek, kdf, self.tick())?;
+        if self.header()? != header {
+            return Err(VaultError::BadPassword);
+        }
         let txn = self.db.begin_write()?;
         write_header(&txn, &fresh)?;
         txn.commit()?;
@@ -576,15 +599,32 @@ impl Vault {
 
     pub fn replace(&self, entries: &[Entry]) -> Result<MergeReport> {
         self.with_cipher(|cipher| {
+            let before = self.snapshot(cipher)?;
+            for e in entries {
+                self.observe(e.stamp());
+            }
             let txn = self.db.begin_write()?;
             wipe(&txn)?;
             let mut report = MergeReport::default();
+            let mut kept = std::collections::BTreeSet::new();
             for e in entries {
                 if !e.is_tombstone() {
                     report.added += 1;
                 }
-                self.observe(e.stamp());
-                store(&txn, cipher, e)?;
+                kept.insert(e.id());
+                let mut fresh = e.clone();
+                fresh.set_stamp(self.tick());
+                store(&txn, cipher, &fresh)?;
+            }
+            for (id, old) in &before {
+                if !old.is_tombstone() && !kept.contains(id) {
+                    report.deleted += 1;
+                    let grave = Entry::Tombstone(Tombstone {
+                        id: *id,
+                        updated_ms: self.tick(),
+                    });
+                    store(&txn, cipher, &grave)?;
+                }
             }
             txn.commit()?;
             Ok(report)
@@ -712,6 +752,16 @@ impl Vault {
     }
 
     fn install(&self, cipher: XChaCha20Poly1305) {
+        if let Ok(header) = self.header() {
+            self.observe(header.epoch);
+        }
+        if let Some(max) = self
+            .snapshot(&cipher)
+            .ok()
+            .and_then(|snap| snap.values().map(Entry::stamp).max())
+        {
+            self.observe(max);
+        }
         *self.guard() = Some(Session {
             cipher,
             last_use: Instant::now(),

@@ -47,7 +47,14 @@ impl KnownHostsFile {
         }
         match russh::keys::check_known_hosts_path(host, port, key, &self.path) {
             Ok(true) => Ok(HostKeyStatus::Known),
-            Ok(false) => Ok(HostKeyStatus::Unknown),
+            Ok(false) => {
+                let pinned =
+                    russh::keys::known_hosts::known_host_keys_path(host, port, &self.path)?;
+                Ok(match pinned.first() {
+                    Some((line, _)) => HostKeyStatus::Changed { line: *line },
+                    None => HostKeyStatus::Unknown,
+                })
+            }
             Err(KeyError::KeyChanged { line }) => Ok(HostKeyStatus::Changed { line }),
             Err(e) => Err(e.into()),
         }

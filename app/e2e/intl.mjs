@@ -59,6 +59,10 @@ async function check(name, fn) {
   } catch (e) {
     results.push({ name, ok: false, error: String(e) });
     console.log(`  FAIL ${name}: ${e}`);
+    if (term) {
+      const tail = (await text().catch(() => "")).split("\n").map((l) => l.trimEnd()).filter(Boolean).slice(-4);
+      console.log(`       terminal: ${JSON.stringify(tail)}`);
+    }
   }
 }
 

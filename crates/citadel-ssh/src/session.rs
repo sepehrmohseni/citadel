@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -12,7 +13,7 @@ use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio::time::timeout;
 
-use crate::agent::ForwardAgent;
+use crate::agent::ForwardSlot;
 use crate::auth::{self, Credential, Prompter};
 use crate::client::{Banner, Client, RemoteDest, RemoteRoutes};
 use crate::meter::Meter;
@@ -97,6 +98,7 @@ pub struct Route {
     pub verifier: Arc<dyn HostKeyVerifier>,
     pub banner: Option<Banner>,
     pub prompter: Option<Arc<dyn Prompter>>,
+    pub agent_gate: Option<Arc<AtomicBool>>,
 }
 
 impl Route {
@@ -109,6 +111,7 @@ impl Route {
             verifier,
             banner: None,
             prompter: None,
+            agent_gate: None,
         }
     }
 }
@@ -203,6 +206,33 @@ fn config(keepalive: Duration, legacy: bool) -> Arc<Config> {
     })
 }
 
+async fn patient<T>(
+    limit: Duration,
+    waiting: &AtomicUsize,
+    addr: &str,
+    fut: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    let mut fut = std::pin::pin!(fut);
+    let start = tokio::time::Instant::now();
+    let mut deadline = start + limit;
+    loop {
+        tokio::select! {
+            res = &mut fut => return res,
+            () = tokio::time::sleep_until(deadline) => {
+                let now = tokio::time::Instant::now();
+                if waiting.load(Ordering::SeqCst) > 0 && now.duration_since(start) < PROMPT_WAIT {
+                    deadline = now + limit;
+                    continue;
+                }
+                return Err(TransportError::Timeout {
+                    stage: "handshake",
+                    addr: addr.to_owned(),
+                });
+            }
+        }
+    }
+}
+
 async fn bounded<T>(
     limit: Duration,
     stage: &'static str,
@@ -226,7 +256,7 @@ pub async fn connect(route: &Route) -> Result<Arc<Session>> {
     let mut prev: Option<Arc<Session>> = None;
     for (i, hop) in route.hops.iter().enumerate() {
         let agent = (i == last && route.agent_forward)
-            .then(|| Arc::new(ForwardAgent::for_credential(&hop.credential)));
+            .then(|| Arc::new(ForwardSlot::new(&hop.credential, route.agent_gate.clone())));
         let addr = format!("{}:{}", hop.host, hop.port);
         let sess = match prev.take() {
             None => {
@@ -254,7 +284,7 @@ impl Session {
     async fn establish<S>(
         route: &Route,
         hop: &Hop,
-        agent: Option<Arc<ForwardAgent>>,
+        agent: Option<Arc<ForwardSlot>>,
         stream: S,
         via: Option<Arc<Session>>,
     ) -> Result<Self>
@@ -266,6 +296,8 @@ impl Session {
         let routes = Arc::new(RemoteRoutes::default());
         let host_key = Arc::new(OnceLock::new());
         let agent_forward = agent.is_some();
+        let slot = agent.clone();
+        let waiting = Arc::new(AtomicUsize::new(0));
         let client = Client {
             host: hop.host.clone(),
             port: hop.port,
@@ -275,10 +307,11 @@ impl Session {
             closed: Arc::new(closed_tx),
             host_key: host_key.clone(),
             banner: route.banner.clone(),
+            waiting: waiting.clone(),
         };
         let handshake =
             russh::client::connect_stream(config(route.keepalive, hop.legacy), stream, client);
-        let mut handle = bounded(route.connect_timeout, "handshake", &addr, async {
+        let mut handle = patient(route.connect_timeout, &waiting, &addr, async {
             handshake.await.map_err(|e| match e {
                 TransportError::Ssh(russh::Error::UnknownKey) => TransportError::HostKeyRejected {
                     host: hop.host.clone(),
@@ -304,7 +337,7 @@ impl Session {
         } else {
             route.connect_timeout.saturating_mul(4)
         };
-        bounded(
+        let used = bounded(
             auth_wait,
             "authentication",
             &addr,
@@ -317,6 +350,9 @@ impl Session {
             ),
         )
         .await?;
+        if let (Some(slot), Some(used), Credential::Auto { .. }) = (&slot, &used, &hop.credential) {
+            slot.settle(used);
+        }
         Ok(Self {
             handle,
             routes,

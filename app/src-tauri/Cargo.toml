@@ -1,6 +1,7 @@
 [package]
 name = "citadel-app"
 description = "Citadel desktop application"
+authors = ["Sepehr Mohseni <64346646+sepehrmohseni@users.noreply.github.com>"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -25,6 +26,9 @@ citadel-sync.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 tauri-plugin-clipboard-manager.workspace = true
+tauri-plugin-global-shortcut.workspace = true
+tauri-plugin-opener.workspace = true
+fontdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 secrecy.workspace = true

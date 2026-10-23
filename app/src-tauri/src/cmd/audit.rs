@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use citadel_ssh::{KeyFamily, classify};
 use citadel_vault::{
     Auth, Forward, HostProfile, IdentityKey, KdfParams, SyncBackend, SyncTarget, TunnelSpec,
@@ -9,6 +7,7 @@ use tauri::State;
 
 use super::{AppState, blocking};
 use crate::error::{AppError, CmdResult};
+use crate::grants::Access;
 
 const MAX_RECORDING: usize = 64 << 20;
 
@@ -275,10 +274,14 @@ pub async fn vault_audit(state: State<'_, AppState>) -> CmdResult<Report> {
 }
 
 #[tauri::command]
-pub async fn recording_save(path: String, content: String) -> CmdResult<u64> {
-    let path = PathBuf::from(path);
+pub async fn recording_save(
+    state: State<'_, AppState>,
+    target: String,
+    content: String,
+) -> CmdResult<u64> {
+    let mut path = state.0.grants.redeem(&target, Access::Write)?;
     if path.extension().and_then(|e| e.to_str()) != Some("cast") {
-        return Err(AppError::invalid("recordings must be saved as .cast files"));
+        path.as_mut_os_string().push(".cast");
     }
     if content.len() > MAX_RECORDING {
         return Err(AppError::invalid("recording exceeds 64 MiB"));
@@ -297,7 +300,7 @@ pub async fn recording_save(path: String, content: String) -> CmdResult<u64> {
                 .and_then(|n| n.to_str())
                 .unwrap_or("recording")
         ));
-        std::fs::write(&tmp, content.as_bytes())?;
+        crate::safety::write_private(&tmp, content.as_bytes())?;
         std::fs::rename(&tmp, &path)?;
         Ok(content.len() as u64)
     })

@@ -212,6 +212,14 @@ enum Step {
     Failed,
 }
 
+pub(crate) enum Used {
+    File(Arc<PrivateKey>),
+    Agent {
+        endpoint: AgentEndpoint,
+        fingerprint: String,
+    },
+}
+
 fn short(key: &PublicKey) -> String {
     let fp = fingerprint(key);
     let tail = fp.strip_prefix("SHA256:").unwrap_or(&fp);
@@ -243,6 +251,7 @@ struct Ctx<'a> {
     rsa: Option<Vec<Option<HashAlg>>>,
     tried: Vec<String>,
     methods: Option<MethodSet>,
+    used: Option<Used>,
 }
 
 impl Ctx<'_> {
@@ -380,6 +389,10 @@ impl Ctx<'_> {
                             .map_err(|e| TransportError::Agent(e.to_string()))?;
                         step = self.record(&signed(&what, hash, rsa), res);
                         if !matches!(step, Step::Failed) {
+                            self.used = Some(Used::Agent {
+                                endpoint: endpoint.clone(),
+                                fingerprint: fingerprint(&key),
+                            });
                             return Ok(step);
                         }
                     }
@@ -452,6 +465,7 @@ impl Ctx<'_> {
             };
             let step = self.key(&key).await?;
             if !matches!(step, Step::Failed) {
+                self.used = Some(Used::File(key));
                 return Ok(step);
             }
         }
@@ -557,7 +571,7 @@ pub(crate) async fn authenticate(
     host: &str,
     cred: &Credential,
     prompter: Option<Arc<dyn Prompter>>,
-) -> Result<()> {
+) -> Result<Option<Used>> {
     let prompter = match cred {
         Credential::Interactive(p) => Some(p.clone()),
         _ => prompter,
@@ -570,6 +584,7 @@ pub(crate) async fn authenticate(
         rsa: None,
         tried: Vec::new(),
         methods: None,
+        used: None,
     };
     let mut step = match cred {
         Credential::Key(key) => cx.key(key).await?,
@@ -586,13 +601,13 @@ pub(crate) async fn authenticate(
     };
     for _ in 0..MAX_FACTORS {
         step = match step {
-            Step::Done => return Ok(()),
+            Step::Done => return Ok(cx.used),
             Step::Failed => break,
             Step::Partial(methods) => cx.second(&methods).await?,
         };
     }
     if matches!(step, Step::Done) {
-        return Ok(());
+        return Ok(cx.used);
     }
     Err(TransportError::AuthFailed {
         user: user.to_owned(),
