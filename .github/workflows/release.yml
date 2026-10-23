@@ -126,9 +126,94 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
 
+  android:
+    name: bundle (android)
+    needs: draft
+    if: ${{ !cancelled() && (needs.draft.result == 'success' || needs.draft.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      NDK_VERSION: 27.2.12479018
+    steps:
+      - uses: actions/checkout@v4
+      - name: Signing secrets present
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$PASSWORD" ]; then
+            echo "::error::add the ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD repository secrets (see docs/INSTALL.md)"
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Android NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-android
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+      - name: Signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          dir="$RUNNER_TEMP/signing"
+          mkdir -p "$dir"
+          printf '%s' "$KEYSTORE" | base64 -d > "$dir/release.jks"
+          {
+            echo "storeFile=$dir/release.jks"
+            echo "password=$PASSWORD"
+            echo "keyAlias=citadel"
+          } > app/src-tauri/gen/android/keystore.properties
+      - name: Build APK
+        working-directory: app
+        run: pnpm tauri android build --apk --target aarch64 --target armv7 --target x86_64 -- --locked
+      - name: Collect APK
+        run: |
+          version="$(node -p "require('./app/src-tauri/tauri.conf.json').version")"
+          mkdir -p dist
+          cp app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
+            "dist/Citadel_${version}_android.apk"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-android
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Attach to draft release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+
   checksums:
     name: checksums
-    needs: bundle
+    needs: [bundle, android]
     if: ${{ !cancelled() && needs.bundle.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:

@@ -700,3 +700,46 @@
 .backup-row .when {
   color: var(--fg);
 }
+
+@media (max-width: 720px) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .set-nav {
+    position: static;
+    flex-direction: row;
+    gap: 6px;
+    height: auto;
+    min-height: 0;
+    padding: 10px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .set-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .set-nav h1 {
+    display: none;
+  }
+  .set-nav button {
+    flex: none;
+    width: auto;
+  }
+  .set-body {
+    padding: 18px 16px 32px;
+    overflow-wrap: anywhere;
+  }
+  .set-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .set-row .ctl {
+    flex-wrap: wrap;
+  }
+  .set-row .ctl .input {
+    width: 100%;
+  }
+}

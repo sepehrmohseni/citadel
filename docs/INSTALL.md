@@ -9,6 +9,7 @@ release also carries a `SHA256SUMS` file covering all of its assets.
 | Windows | Windows 10 or 11, x64. Uses the WebView2 runtime, which the installer fetches if it is missing. |
 | macOS | macOS 11 or later. One universal build for Apple Silicon and Intel. |
 | Linux | x86_64. The `.deb` and `.rpm` need WebKitGTK 4.1 and GTK 3 from the distribution (Ubuntu 22.04+, Debian 12+, current Fedora and openSUSE). The AppImage bundles its own WebKitGTK. |
+| Android | Android 7.0 (API 24) or later. One APK covers arm64, armv7 and x86_64. |
 
 ## One-line install
 
@@ -143,6 +144,30 @@ AppImage uses FUSE to mount itself; if FUSE is unavailable, install your
 distribution's `fuse3` package or run it with `APPIMAGE_EXTRACT_AND_RUN=1`.
 `install.sh` warns when it detects this.
 
+## Android
+
+Download `Citadel_<version>_android.apk` from the
+[latest release](https://github.com/sepehrmohseni/citadel/releases/latest) on
+the phone and open it. Android asks once to allow installs from the browser or
+file manager you opened it with ("Install unknown apps").
+
+The APK is signed with the project's release key. Newer releases install over
+older ones and keep the vault; an APK signed with a different key is refused by
+Android, which protects the installed app from a tampered build. To check the
+certificate before installing:
+
+```sh
+apksigner verify --print-certs Citadel_0.1.0_android.apk
+```
+
+The `SHA-256 digest` must be
+`73d60e8e634f8139367d2a93c43979735391c675a0c3c3f6fc646869b3c8967a`.
+
+On phones the navigation moves to a bottom bar and terminals get a key row
+with Esc, Tab, Ctrl, Alt, arrows and common symbols. Ctrl and Alt apply to the
+next key typed on the on-screen keyboard. The global show/hide shortcut is a
+desktop feature and is not available on Android.
+
 ## Manual downloads
 
 Download from the [latest release](https://github.com/sepehrmohseni/citadel/releases/latest)
@@ -243,13 +268,15 @@ Review the draft and publish it by hand; until then the install scripts report
 | ubuntu-22.04 | `.deb`, `.rpm`, `.AppImage` |
 | windows-latest | `-setup.exe` (NSIS), `.msi` |
 | macos-latest | `_universal.dmg` |
+| ubuntu-24.04 | `_android.apk`, signed |
 
 Ubuntu 22.04 is used so the Linux binaries link against an older glibc and run
 on more distributions.
 
 **Manual run (`workflow_dispatch`).** Actions > Release > Run workflow builds
 the same matrix and uploads the results as workflow artifacts only:
-`bundle-linux-x64`, `bundle-windows-x64`, `bundle-macos-universal`, and
+`bundle-linux-x64`, `bundle-windows-x64`, `bundle-macos-universal`,
+`bundle-android`, and
 `citadel-dist`, which holds all installers plus `SHA256SUMS`. No release or
 tag is created.
 
@@ -271,6 +298,30 @@ $env:CITADEL_ASSETS_DIR = "$PWD\citadel-dist"; .\docs\install.ps1
 
 Local builds work the same way: `pnpm tauri build` in `app/`, then
 `scripts/collect-bundles.sh dist` and `(cd dist && sha256sum -- Citadel* > SHA256SUMS)`.
+
+### Android signing key
+
+The Android job signs the APK with a keystore kept in two repository secrets
+(Settings > Secrets and variables > Actions):
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | the PKCS12 keystore, base64 on one line |
+| `ANDROID_KEYSTORE_PASSWORD` | its password (store and key share it) |
+
+The key alias must be `citadel`. Without both secrets the Android job fails
+with a message and the desktop installers are still released. To create a
+keystore:
+
+```sh
+keytool -genkeypair -keystore citadel-release.jks -storetype PKCS12 -alias citadel \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Citadel"
+base64 -w0 citadel-release.jks > citadel-release.jks.base64
+```
+
+Keep the keystore and password backed up offline. Android only installs an
+update over an existing install when it is signed with the same key, so losing
+it means users must uninstall (and lose local data) to move to a new key.
 
 ## Adding code signing later
 

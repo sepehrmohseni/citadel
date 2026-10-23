@@ -33,6 +33,9 @@ prefs.subscribe((p) => setOverrides(p?.keybindings));
 factories.files = filesTab;
 factories.palette = openPalette;
 
+const touch = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad/i.test(navigator.userAgent);
+document.documentElement.classList.toggle("touch", touch);
+
 const syncVisibility = () => document.documentElement.classList.toggle("app-hidden", document.hidden);
 document.addEventListener("visibilitychange", syncVisibility);
 syncVisibility();

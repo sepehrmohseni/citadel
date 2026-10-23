@@ -111,6 +111,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     webview_env();
     harden();
@@ -121,15 +122,17 @@ pub fn run() {
         )
         .with_writer(std::io::stderr)
         .try_init();
-    let built = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(hotkey::handler)
-                .build(),
-        )
+        .plugin(tauri_plugin_opener::init());
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(hotkey::handler)
+            .build(),
+    );
+    let built = builder
         .setup(setup)
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
@@ -137,6 +140,7 @@ pub fn run() {
                     state.0.grants.note_dropped(paths);
                 }
             }
+            #[cfg(desktop)]
             tauri::WindowEvent::Focused(on) => hotkey::focus_changed(*on),
             _ => {}
         })

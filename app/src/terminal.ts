@@ -620,7 +620,61 @@ function createPane(host: Id, changed: () => void): Pane {
     void readClipboard().then((text) => (text ? pasteGuard(text) : undefined), (err) => fail(err, "Clipboard unavailable"));
   };
 
-  term.onData((d) => {
+  const latch = { ctrl: false, alt: false };
+  const latchEls: HTMLElement[] = [];
+  const applyLatch = (d: string): string => {
+    if ((!latch.ctrl && !latch.alt) || d.startsWith("\x1b")) return d;
+    let out = d;
+    if (latch.ctrl && d.length === 1) {
+      const c = d.toLowerCase().charCodeAt(0);
+      if (c >= 97 && c <= 122) out = String.fromCharCode(c - 96);
+      else if (d === " " || d === "@") out = "\x00";
+      else if ("[\\]^_".includes(d)) out = String.fromCharCode(d.charCodeAt(0) - 64);
+    }
+    if (latch.alt) out = `\x1b${out}`;
+    latch.ctrl = latch.alt = false;
+    for (const el of latchEls) el.classList.remove("on");
+    return out;
+  };
+  const arrow = (k: string) => () => (term.modes.applicationCursorKeysMode ? `\x1bO${k}` : `\x1b[${k}`);
+  const touchKeys: [string, string | (() => string)][] = [
+    ["esc", "\x1b"],
+    ["tab", "\t"],
+    ["ctrl", "ctrl"],
+    ["alt", "alt"],
+    ["←", arrow("D")],
+    ["↑", arrow("A")],
+    ["↓", arrow("B")],
+    ["→", arrow("C")],
+    ["|", "|"],
+    ["~", "~"],
+    ["/", "/"],
+    ["-", "-"],
+  ];
+  const keysEl = h(
+    "div",
+    { class: "term-keys", role: "toolbar", "aria-label": "Terminal keys" },
+    ...touchKeys.map(([label, out]) => {
+      const b = h("button", { class: "term-key", type: "button", tabindex: "-1", dataset: { key: label } }, label);
+      b.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        if (out === "ctrl" || out === "alt") {
+          latch[out] = !latch[out];
+          b.classList.toggle("on", latch[out]);
+        } else {
+          const seq = typeof out === "function" ? out() : out;
+          asUser(() => term.input(seq, true));
+        }
+        term.focus();
+      });
+      if (out === "ctrl" || out === "alt") latchEls.push(b);
+      return b;
+    }),
+  );
+  main.append(keysEl);
+
+  term.onData((raw) => {
+    const d = applyLatch(raw);
     wakeCursor();
     sendString(d);
     if (userTurn && broadcast.has(key)) {

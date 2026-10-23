@@ -1,7 +1,7 @@
 /target
 **/node_modules
 /app/dist
-/app/src-tauri/gen
+/app/src-tauri/gen/schemas
 *.redb
 *.ctdl
 !crates/citadel-vault/tests/fixtures/*.redb

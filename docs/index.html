@@ -113,17 +113,19 @@
     </div>
 
     <div class="install ticks" id="install">
-      <div class="frame-h">install<span class="meta" data-detected>linux · macos · windows</span></div>
+      <div class="frame-h">install<span class="meta" data-detected>linux · macos · windows · android</span></div>
       <div class="install-row">
         <div class="seg" role="tablist" aria-label="Operating system">
           <button type="button" role="tab" id="tab-linux" aria-controls="cmd-linux" aria-selected="true" data-os="linux">linux</button>
           <button type="button" role="tab" id="tab-macos" aria-controls="cmd-macos" aria-selected="false" tabindex="-1" data-os="macos">macos</button>
           <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1" data-os="windows">windows</button>
+          <button type="button" role="tab" id="tab-android" aria-controls="cmd-android" aria-selected="false" tabindex="-1" data-os="android">android</button>
         </div>
         <div class="cmds">
           <div class="cmd" role="tabpanel" id="cmd-linux" aria-labelledby="tab-linux" data-panel="linux"><span class="os-label">linux</span><span class="prompt" aria-hidden="true">$</span><code>curl -fsSL https://sepehrmohseni.github.io/<wbr>citadel/install.sh | sh</code></div>
           <div class="cmd" role="tabpanel" id="cmd-macos" aria-labelledby="tab-macos" data-panel="macos"><span class="os-label">macos</span><span class="prompt" aria-hidden="true">$</span><code>curl -fsSL https://sepehrmohseni.github.io/<wbr>citadel/install.sh | sh</code></div>
           <div class="cmd" role="tabpanel" id="cmd-windows" aria-labelledby="tab-windows" data-panel="windows"><span class="os-label">windows</span><span class="prompt" aria-hidden="true">PS&gt;</span><code>irm https://sepehrmohseni.github.io/<wbr>citadel/install.ps1 | iex</code></div>
+          <div class="cmd" role="tabpanel" id="cmd-android" aria-labelledby="tab-android" data-panel="android" hidden><span class="os-label">android</span><span class="prompt" aria-hidden="true">&darr;</span><code>https://github.com/sepehrmohseni/<wbr>citadel/releases/latest</code></div>
         </div>
         <button class="btn copy" type="button" data-copy>copy</button>
       </div>

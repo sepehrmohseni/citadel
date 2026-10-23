@@ -1,8 +1,13 @@
+#[cfg(desktop)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(desktop)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(desktop)]
+use tauri::Manager;
+#[cfg(desktop)]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
 use crate::core::lock;
@@ -37,16 +42,21 @@ pub fn accelerator(chord: &str) -> CmdResult<String> {
     Ok(out.join("+"))
 }
 
+#[cfg(desktop)]
 static FOCUSED: AtomicBool = AtomicBool::new(false);
+#[cfg(desktop)]
 static LOST_AT: AtomicU64 = AtomicU64::new(0);
+#[cfg(desktop)]
 const GRAB_GRACE_MS: u64 = 400;
 
+#[cfg(desktop)]
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+#[cfg(desktop)]
 pub fn focus_changed(on: bool) {
     if !on && FOCUSED.load(Ordering::SeqCst) {
         LOST_AT.store(now_ms(), Ordering::SeqCst);
@@ -54,6 +64,7 @@ pub fn focus_changed(on: bool) {
     FOCUSED.store(on, Ordering::SeqCst);
 }
 
+#[cfg(desktop)]
 pub fn toggle(app: &AppHandle) {
     let Some(win) = app.get_webview_window("main") else {
         return;
@@ -72,12 +83,14 @@ pub fn toggle(app: &AppHandle) {
     }
 }
 
+#[cfg(desktop)]
 pub fn handler(app: &AppHandle, _shortcut: &Shortcut, event: ShortcutEvent) {
     if event.state() == ShortcutState::Pressed {
         toggle(app);
     }
 }
 
+#[cfg(desktop)]
 pub fn apply(app: &AppHandle, slot: &std::sync::Mutex<HotkeyStatus>, chord: &str) -> HotkeyStatus {
     let gs = app.global_shortcut();
     let previous = lock(slot).clone();
@@ -104,6 +117,18 @@ pub fn apply(app: &AppHandle, slot: &std::sync::Mutex<HotkeyStatus>, chord: &str
                 error: Some(e.to_string()),
             },
         }
+    };
+    *lock(slot) = status.clone();
+    status
+}
+
+#[cfg(mobile)]
+pub fn apply(_app: &AppHandle, slot: &std::sync::Mutex<HotkeyStatus>, chord: &str) -> HotkeyStatus {
+    let status = HotkeyStatus {
+        chord: chord.to_owned(),
+        active: false,
+        error: (!chord.is_empty())
+            .then(|| "global shortcuts are not available on this device".to_owned()),
     };
     *lock(slot) = status.clone();
     status

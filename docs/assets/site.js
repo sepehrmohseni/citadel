@@ -40,6 +40,7 @@
     var uad = navigator.userAgentData;
     var p = (uad && uad.platform) || navigator.platform || "";
     var ua = navigator.userAgent || "";
+    if (/Android/i.test(ua)) return "android";
     if (/win/i.test(p) || /Windows/.test(ua)) return "windows";
     if (/mac|iphone|ipad|ipod/i.test(p) || /Mac OS X|iPhone|iPad/.test(ua)) return "macos";
     return "linux";
@@ -66,7 +67,10 @@
       panels.forEach(function (p) {
         p.hidden = p.getAttribute("data-panel") !== name;
       });
-      if (script) script.href = name === "windows" ? "install.ps1" : "install.sh";
+      if (script) {
+        script.href = name === "windows" ? "install.ps1" : name === "android" ? "https://github.com/sepehrmohseni/citadel/blob/master/docs/INSTALL.md#android" : "install.sh";
+        script.textContent = name === "android" ? "install guide" : "read the script";
+      }
     }
 
     tabs.forEach(function (b, i) {
