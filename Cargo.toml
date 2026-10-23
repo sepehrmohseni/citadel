@@ -2,6 +2,7 @@
 resolver = "3"
 members = ["crates/*", "app/src-tauri"]
 default-members = ["crates/*"]
+exclude = ["crates/citadel-guard"]
 
 [workspace.package]
 version = "0.1.0"
