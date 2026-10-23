@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        working-directory: app
+        run: |
+          if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
+      - name: Typecheck
+        working-directory: app
+        run: pnpm exec tsc --noEmit
+      - name: Unit tests
+        working-directory: app
+        run: pnpm test
+      - name: Build
+        working-directory: app
+        run: pnpm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: app/dist
+          retention-days: 1
+
+  linux:
+    name: clippy + test (linux)
+    needs: frontend
+    runs-on: ubuntu-24.04
+    env:
+      CITADEL_SSHD: /usr/sbin/sshd
+      CITADEL_SFTP_SERVER: /usr/lib/openssh/sftp-server
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: app/dist
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: OpenSSH suite (release)
+        run: cargo test --release -p citadel-ssh --test openssh --locked -- --nocapture
+
+  e2e:
+    name: end-to-end (linux, real sshd)
+    needs: frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server xvfb x11-apps x11-utils xdotool x11-xkb-utils libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install frontend
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+      - name: Run UI scenario against a throwaway sshd
+        run: app/e2e/ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: |
+            app/e2e-artifacts/*.png
+            app/e2e-artifacts/intl/*.png
+          retention-days: 7
+
+  portable:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build core crates
+        run: cargo build --locked -p citadel-ssh -p citadel-telemetry -p citadel-sync
+      - name: Test vault and config
+        run: cargo test --locked -p citadel-vault -p citadel-config

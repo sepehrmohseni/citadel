@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sftp-read"
+description = "Enables the sftp_read command without any pre-configured scope."
+commands.allow = ["sftp_read"]
+
+[[permission]]
+identifier = "deny-sftp-read"
+description = "Denies the sftp_read command without any pre-configured scope."
+commands.deny = ["sftp_read"]

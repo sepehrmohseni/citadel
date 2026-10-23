@@ -1,0 +1,520 @@
+.tn-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 22px 26px 18px;
+  min-height: 0;
+}
+
+.tn-head {
+  flex: none;
+}
+
+.tn-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tn-body > .empty {
+  margin: 0;
+}
+
+.tn-page .page-head {
+  align-items: center;
+}
+
+.tn-body > .tn-list {
+  overflow: auto;
+}
+
+.tn-graph {
+  position: relative;
+  flex: 1;
+  min-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: radial-gradient(800px 360px at 50% 0%, rgba(255, 176, 0, 0.03), transparent 70%), var(--bg);
+  overflow: hidden;
+}
+
+.tg-canvas,
+.tg-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.tg-svg {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.tg-svg.panning {
+  cursor: grabbing;
+}
+
+.tg-griddot {
+  fill: rgba(255, 255, 255, 0.045);
+}
+
+.tg-bgrect {
+  pointer-events: all;
+}
+
+.tg-legend {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  pointer-events: none;
+  color: var(--fg-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.tg-legend span:nth-child(2) {
+  text-align: center;
+}
+
+.tg-legend span:nth-child(3) {
+  text-align: right;
+}
+
+.tg-controls {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: rgba(19, 23, 29, 0.9);
+  backdrop-filter: blur(8px);
+}
+
+.tg-minus span {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tg-node {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.18s;
+}
+
+.tg-node.dragging {
+  cursor: grabbing;
+}
+
+.tg-node.dim {
+  opacity: 0.42;
+}
+
+.tg-bg {
+  fill: var(--bg-2);
+  stroke: var(--line-2);
+  stroke-width: 1;
+  transition: fill 0.15s, stroke 0.15s;
+}
+
+.tg-host .tg-bg {
+  fill: var(--bg-3);
+}
+
+.tg-node:hover .tg-bg {
+  stroke: var(--line-3);
+}
+
+.tg-node.sel .tg-bg,
+.tg-node:focus-visible .tg-bg {
+  stroke: var(--accent-line);
+  fill: #17201f;
+}
+
+.tg-ring {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 1.5;
+}
+
+.tg-host.tone-ok .tg-ring {
+  stroke: rgba(255, 176, 0, 0.6);
+}
+
+.tg-host.tone-warn .tg-ring {
+  stroke: rgba(240, 195, 90, 0.6);
+  animation: tg-pulse 1.3s ease-in-out infinite;
+}
+
+.tg-host.tone-err .tg-ring {
+  stroke: rgba(255, 111, 111, 0.6);
+}
+
+@keyframes tg-pulse {
+  50% {
+    stroke-opacity: 0.2;
+  }
+}
+
+.tg-dot {
+  fill: var(--fg-3);
+}
+
+.tone-ok .tg-dot {
+  fill: var(--accent);
+}
+
+.tone-warn .tg-dot {
+  fill: var(--warn);
+}
+
+.tone-err .tg-dot {
+  fill: var(--danger);
+}
+
+.tg-title {
+  fill: var(--fg);
+  font: 600 12.5px var(--font-ui);
+}
+
+.tg-left .tg-title,
+.tg-right .tg-title {
+  font: 500 12px var(--font-mono);
+}
+
+.tg-sub {
+  fill: var(--fg-2);
+  font: 11px var(--font-mono);
+}
+
+.tg-pill {
+  fill: var(--bg-3);
+  stroke: var(--line-2);
+}
+
+.tg-pill-text {
+  fill: var(--fg-1);
+  font: 500 10.5px var(--font-ui);
+}
+
+.tg-pill-arrow {
+  fill: var(--fg-3);
+  font: 11px var(--font-ui);
+}
+
+.tg-edge {
+  fill: none;
+  stroke: var(--line-3);
+  stroke-width: 1.6;
+  transition: stroke 0.2s, opacity 0.2s;
+}
+
+.tg-edge.tone-ok {
+  stroke: rgba(255, 176, 0, 0.45);
+}
+
+.tg-edge.tone-warn {
+  stroke: rgba(240, 195, 90, 0.5);
+  stroke-dasharray: 3 5;
+}
+
+.tg-edge.tone-err {
+  stroke: rgba(255, 111, 111, 0.55);
+  stroke-dasharray: 2 6;
+}
+
+.tg-edge.flow {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 7 9;
+  animation: tg-flow var(--flow, 1.2s) linear infinite;
+}
+
+.tg-edge.sel {
+  stroke-width: 2.4;
+}
+
+.tg-edge.dim {
+  opacity: 0.3;
+}
+
+@keyframes tg-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+.tg-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  cursor: pointer;
+}
+
+.tg-arrowhead {
+  fill: var(--line-3);
+}
+
+.tg-arrowhead.on {
+  fill: var(--accent);
+}
+
+.tg-label {
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.tg-label rect {
+  fill: rgba(10, 12, 15, 0.92);
+  stroke: var(--accent-line);
+}
+
+.tg-label text {
+  fill: var(--accent);
+  font: 500 10.5px var(--font-mono);
+}
+
+.tg-label.dim {
+  opacity: 0.3;
+}
+
+.tn-inspector-slot {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 316px;
+  display: flex;
+  pointer-events: none;
+}
+
+.tn-inspector {
+  pointer-events: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: rgba(19, 23, 29, 0.96);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  overflow: auto;
+  user-select: text;
+  animation: tn-slide 0.2s var(--ease);
+}
+
+@keyframes tn-slide {
+  from {
+    transform: translateX(10px);
+    opacity: 0;
+  }
+}
+
+.tn-inspector header {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.tn-inspector header .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.tn-inspector h3 {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tn-state {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ti-block {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+}
+
+.ti-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.ti-kv > span:first-child {
+  color: var(--fg-2);
+  flex: none;
+}
+
+.ti-kv > span:last-child {
+  color: var(--fg);
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ti-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.ti-stats > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+}
+
+.ti-stats b {
+  font: 600 16px var(--font-mono);
+  color: var(--fg);
+}
+
+.ti-stats span {
+  color: var(--fg-3);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.ti-stats .bad b {
+  color: var(--danger);
+}
+
+.ti-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.ti-actions .btn:first-child {
+  flex: 1;
+}
+
+.tn-kind {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  font: 700 12px var(--font-mono);
+  border: 1px solid var(--line-2);
+}
+
+.tn-kind.k-local {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.tn-kind.k-remote {
+  color: var(--violet);
+  background: rgba(181, 156, 255, 0.12);
+  border-color: rgba(181, 156, 255, 0.35);
+}
+
+.tn-kind.k-dynamic {
+  color: var(--info);
+  background: var(--info-soft);
+  border-color: rgba(116, 185, 255, 0.35);
+}
+
+.tn-list .title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tn-auto {
+  height: 18px;
+  font-size: 10px;
+}
+
+.tn-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 230px;
+  color: var(--fg-1);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tn-rate {
+  width: 120px;
+  text-align: right;
+  color: var(--fg-2);
+  font-size: 11.5px;
+}
+
+.tunnel-form .tf-kindhelp {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.tf-preview {
+  padding: 12px 14px;
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  line-height: 1.6;
+}
+
+.tf-preview code {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  color: var(--fg);
+}
+
+.tf-preview b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.tf-toggles {
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1100px) {
+  .tn-status {
+    width: 160px;
+  }
+
+  .tn-rate {
+    display: none;
+  }
+}

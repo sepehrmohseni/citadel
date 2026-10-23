@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-identity-agent"
+description = "Enables the identity_agent command without any pre-configured scope."
+commands.allow = ["identity_agent"]
+
+[[permission]]
+identifier = "deny-identity-agent"
+description = "Denies the identity_agent command without any pre-configured scope."
+commands.deny = ["identity_agent"]

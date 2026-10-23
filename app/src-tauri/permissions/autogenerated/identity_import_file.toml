@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-identity-import-file"
+description = "Enables the identity_import_file command without any pre-configured scope."
+commands.allow = ["identity_import_file"]
+
+[[permission]]
+identifier = "deny-identity-import-file"
+description = "Denies the identity_import_file command without any pre-configured scope."
+commands.deny = ["identity_import_file"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sshconfig-hosts"
+description = "Enables the sshconfig_hosts command without any pre-configured scope."
+commands.allow = ["sshconfig_hosts"]
+
+[[permission]]
+identifier = "deny-sshconfig-hosts"
+description = "Denies the sshconfig_hosts command without any pre-configured scope."
+commands.deny = ["sshconfig_hosts"]

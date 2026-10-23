@@ -1,0 +1,33 @@
+[package]
+name = "citadel-sync"
+description = "Bring-your-own-cloud vault replication over S3, WebDAV and Git"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+citadel-vault.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-platform-verifier = "0.7"
+rusty-s3.workspace = true
+url.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros", "process", "fs", "io-util"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+base64.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "test-util", "net", "io-util"] }
+
+[lints]
+workspace = true

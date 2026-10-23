@@ -1,0 +1,27 @@
+[package]
+name = "citadel-telemetry"
+description = "Agentless remote host metrics over an existing SSH session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+citadel-ssh.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros", "io-util"] }
+tracing.workspace = true
+
+[dev-dependencies]
+citadel-testkit.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "test-util"] }
+
+[lints]
+workspace = true

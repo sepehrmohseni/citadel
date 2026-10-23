@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sftp-remove"
+description = "Enables the sftp_remove command without any pre-configured scope."
+commands.allow = ["sftp_remove"]
+
+[[permission]]
+identifier = "deny-sftp-remove"
+description = "Denies the sftp_remove command without any pre-configured scope."
+commands.deny = ["sftp_remove"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sshconfig-import"
+description = "Enables the sshconfig_import command without any pre-configured scope."
+commands.allow = ["sshconfig_import"]
+
+[[permission]]
+identifier = "deny-sshconfig-import"
+description = "Denies the sshconfig_import command without any pre-configured scope."
+commands.deny = ["sshconfig_import"]

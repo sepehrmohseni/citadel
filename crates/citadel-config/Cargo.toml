@@ -1,0 +1,23 @@
+[package]
+name = "citadel-config"
+description = "Lossless OpenSSH client config round-tripping and SSH agent discovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+dirs.workspace = true
+tempfile.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

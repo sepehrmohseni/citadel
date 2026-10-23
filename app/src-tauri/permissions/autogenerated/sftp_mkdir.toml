@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sftp-mkdir"
+description = "Enables the sftp_mkdir command without any pre-configured scope."
+commands.allow = ["sftp_mkdir"]
+
+[[permission]]
+identifier = "deny-sftp-mkdir"
+description = "Denies the sftp_mkdir command without any pre-configured scope."
+commands.deny = ["sftp_mkdir"]

@@ -1,0 +1,8 @@
+/target
+**/node_modules
+/app/dist
+/app/src-tauri/gen
+*.redb
+*.ctdl
+.DS_Store
+e2e-artifacts

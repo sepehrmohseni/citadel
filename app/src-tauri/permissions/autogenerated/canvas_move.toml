@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-canvas-move"
+description = "Enables the canvas_move command without any pre-configured scope."
+commands.allow = ["canvas_move"]
+
+[[permission]]
+identifier = "deny-canvas-move"
+description = "Denies the canvas_move command without any pre-configured scope."
+commands.deny = ["canvas_move"]
