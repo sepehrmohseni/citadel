@@ -75,6 +75,13 @@ const type = (s) => app.eval(`window.__citadel.type(${JSON.stringify(term)}, ${J
 const lines = async () => (await text()).split("\n").map((l) => l.trimEnd());
 const prompt = () => app.waitFor(`/[$#] ?$/.test(window.__citadel.text(${JSON.stringify(term)}).trimEnd())`, 10000, "shell prompt");
 
+async function echoed(tail) {
+  const expr = `window.__citadel.text(${JSON.stringify(term)}).trimEnd().endsWith(${JSON.stringify(tail)})`;
+  await app.waitFor(expr, 5000, `shell echoed ${tail}`);
+  await pause(250);
+  await app.waitFor(expr, 2000, `shell still shows ${tail}`);
+}
+
 async function focusTerminal() {
   const wid = app.windowId();
   x("xdotool", ["windowfocus", "--sync", String(Number(wid))]);
@@ -133,6 +140,7 @@ try {
     await type("clear; echo '");
     await focusTerminal();
     keys(...WORD);
+    await echoed(`'${SALAM}`);
     await type("'\r");
     await app.waitFor(`window.__citadel.text(${JSON.stringify(term)}).split("\\n").some((l) => l.trimEnd() === ${JSON.stringify(SALAM)})`, 5000, "echoed Persian word");
   });
@@ -141,6 +149,7 @@ try {
     await type("echo '");
     await focusTerminal();
     keys(...WORD, "Arabic_beh", "BackSpace");
+    await echoed(`'${SALAM}`);
     await type("'\r");
     await app.waitFor(`window.__citadel.text(${JSON.stringify(term)}).split("\\n").filter((l) => l.trimEnd() === ${JSON.stringify(SALAM)}).length >= 2`, 5000, "second clean echo");
   });
@@ -149,6 +158,7 @@ try {
     await type("echo '");
     await focusTerminal();
     keys("Arabic_meem", "Farsi_yeh", "shift+space", "Arabic_khah", "Arabic_waw", "Arabic_alef", "Arabic_meem");
+    await echoed(`'${MIXED}`);
     await type("'\r");
     await app.waitFor(`window.__citadel.text(${JSON.stringify(term)}).split("\\n").some((l) => l.trimEnd() === ${JSON.stringify(MIXED)})`, 5000, "echoed word with ZWNJ");
   });
