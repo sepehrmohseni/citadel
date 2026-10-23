@@ -84,7 +84,13 @@ fn classify(path: &str) -> AgentKind {
 }
 
 fn under(home: Option<&Path>, rel: &str) -> Option<String> {
-    home.map(|h| h.join(rel).to_string_lossy().into_owned())
+    home.map(|h| {
+        rel.split('/')
+            .filter(|p| !p.is_empty())
+            .fold(h.to_path_buf(), |acc, p| acc.join(p))
+            .to_string_lossy()
+            .into_owned()
+    })
 }
 
 #[cfg(windows)]
@@ -231,10 +237,12 @@ mod tests {
             .filter(|s| s.kind == AgentKind::Custom)
             .map(|s| s.path.as_str())
             .collect();
-        assert_eq!(
-            custom,
-            vec!["/home/u/.custom/agent.sock", "/run/user/1000/gcr/ssh"]
-        );
+        let expected = Path::new("/home/u")
+            .join(".custom")
+            .join("agent.sock")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(custom, vec![expected.as_str(), "/run/user/1000/gcr/ssh"]);
         assert_eq!(got[0].kind, AgentKind::Native);
         assert_eq!(
             got.iter().filter(|s| s.path == "/tmp/native.sock").count(),

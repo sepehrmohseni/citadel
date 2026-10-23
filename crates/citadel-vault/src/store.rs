@@ -97,7 +97,7 @@ pub fn list_backups(dir: &Path) -> Vec<Backup> {
             Backup::parse(e.path(), bytes)
         })
         .collect();
-    out.sort_by(|a, b| b.created_ms.cmp(&a.created_ms));
+    out.sort_by_key(|b| std::cmp::Reverse(b.created_ms));
     out
 }
 
@@ -356,10 +356,17 @@ impl Vault {
             fs::create_dir_all(dir)?;
         }
         restrict(dir, 0o700)?;
-        let created_ms = now_ms();
-        let path = dir.join(format!(
-            "{BACKUP_PREFIX}{created_ms:013}-{generation:x}{BACKUP_EXT}"
-        ));
+        let mut created_ms = now_ms();
+        let named = |ms: u64| {
+            dir.join(format!(
+                "{BACKUP_PREFIX}{ms:013}-{generation:x}{BACKUP_EXT}"
+            ))
+        };
+        let mut path = named(created_ms);
+        while path.exists() || list_backups(dir).iter().any(|b| b.created_ms == created_ms) {
+            created_ms += 1;
+            path = named(created_ms);
+        }
         write_atomic(&path, &blob)?;
         let others: Vec<Backup> = list_backups(dir)
             .into_iter()
@@ -801,13 +808,17 @@ impl Vault {
 
     fn tick(&self) -> u64 {
         let now = now_ms();
-        let prev = self
-            .clock
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
-                Some(now.max(last.saturating_add(1)))
-            })
-            .unwrap_or_else(|v| v);
-        now.max(prev.saturating_add(1))
+        let mut last = self.clock.load(Ordering::SeqCst);
+        loop {
+            let next = now.max(last.saturating_add(1));
+            match self
+                .clock
+                .compare_exchange_weak(last, next, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => return next,
+                Err(seen) => last = seen,
+            }
+        }
     }
 
     fn observe(&self, stamp: u64) {

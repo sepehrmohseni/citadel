@@ -28,7 +28,7 @@ impl Id {
 
     fn hex(&self) -> [u8; 32] {
         let mut out = [0u8; 32];
-        for (pair, b) in out.chunks_exact_mut(2).zip(self.0) {
+        for (pair, b) in out.as_chunks_mut::<2>().0.iter_mut().zip(self.0) {
             pair[0] = HEX[usize::from(b >> 4)];
             pair[1] = HEX[usize::from(b & 0x0f)];
         }

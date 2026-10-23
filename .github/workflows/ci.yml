@@ -81,11 +81,11 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: scripts/ci-annotate.sh clippy cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
-        run: cargo test --workspace --locked
+        run: scripts/ci-annotate.sh tests cargo test --workspace --locked
       - name: OpenSSH suite (release)
-        run: cargo test --release -p citadel-ssh --test openssh --locked -- --nocapture
+        run: scripts/ci-annotate.sh openssh cargo test --release -p citadel-ssh --test openssh --locked -- --nocapture
 
   e2e:
     name: end-to-end (linux, real sshd)
@@ -109,8 +109,10 @@ jobs:
       - name: Install frontend
         working-directory: app
         run: pnpm install --frozen-lockfile
+      - name: Allow the WebKit sandbox to create user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run UI scenario against a throwaway sshd
-        run: app/e2e/ci.sh
+        run: scripts/ci-annotate.sh e2e app/e2e/ci.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -133,6 +135,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build core crates
-        run: cargo build --locked -p citadel-ssh -p citadel-telemetry -p citadel-sync
+        shell: bash
+        run: scripts/ci-annotate.sh build cargo build --locked -p citadel-ssh -p citadel-telemetry -p citadel-sync
       - name: Test vault and config
-        run: cargo test --locked -p citadel-vault -p citadel-config
+        shell: bash
+        run: scripts/ci-annotate.sh tests cargo test --locked -p citadel-vault -p citadel-config
