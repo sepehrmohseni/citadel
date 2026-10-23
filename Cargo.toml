@@ -5,7 +5,7 @@ default-members = ["crates/*"]
 exclude = ["crates/citadel-guard"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"
@@ -15,11 +15,11 @@ keywords = ["ssh", "tunnel", "sftp", "vault", "terminal"]
 categories = ["network-programming", "cryptography", "command-line-utilities"]
 
 [workspace.dependencies]
-citadel-vault = { path = "crates/citadel-vault", version = "0.1.1" }
-citadel-ssh = { path = "crates/citadel-ssh", version = "0.1.1" }
-citadel-telemetry = { path = "crates/citadel-telemetry", version = "0.1.1" }
-citadel-config = { path = "crates/citadel-config", version = "0.1.1" }
-citadel-sync = { path = "crates/citadel-sync", version = "0.1.1" }
+citadel-vault = { path = "crates/citadel-vault", version = "0.1.2" }
+citadel-ssh = { path = "crates/citadel-ssh", version = "0.1.2" }
+citadel-telemetry = { path = "crates/citadel-telemetry", version = "0.1.2" }
+citadel-config = { path = "crates/citadel-config", version = "0.1.2" }
+citadel-sync = { path = "crates/citadel-sync", version = "0.1.2" }
 citadel-testkit = { path = "crates/citadel-testkit" }
 
 argon2 = { version = "0.6", default-features = false, features = ["alloc", "zeroize"] }

@@ -667,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "citadel-app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "citadel-config",
  "citadel-ssh",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "citadel-config"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "dirs 6.0.0",
  "serde",
@@ -707,7 +707,7 @@ dependencies = [
 
 [[package]]
 name = "citadel-ssh"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytes",
  "citadel-testkit",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "citadel-sync"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "citadel-vault",
@@ -747,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "citadel-telemetry"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "citadel-ssh",
  "citadel-testkit",
@@ -761,7 +761,7 @@ dependencies = [
 
 [[package]]
 name = "citadel-testkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rand",
  "russh",
@@ -772,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "citadel-vault"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "argon2",
  "chacha20poly1305",
