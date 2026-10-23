@@ -1,0 +1,17 @@
+[package]
+name = "citadel-guard"
+description = "Pre-execution risk analysis for shell command lines sent to sensitive hosts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true
