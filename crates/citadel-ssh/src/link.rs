@@ -120,14 +120,27 @@ impl LinkHandle {
         .await;
         match found {
             Ok(r) => r,
-            Err(_) => Err(TransportError::Closed(self.describe())),
+            Err(_) => Err(TransportError::NotReady(self.describe())),
         }
     }
 
     fn describe(&self) -> String {
         match &*self.0.state.borrow() {
-            LinkState::Backoff { error, .. } => format!("link down: {error}"),
-            other => format!("link not ready: {other:?}"),
+            LinkState::Backoff {
+                error, retry_ms, ..
+            } => {
+                format!(
+                    "server unreachable: {error}; next attempt in {}s",
+                    retry_ms.div_ceil(1000)
+                )
+            }
+            LinkState::Connecting { attempt } if *attempt > 1 => {
+                format!("the server has not answered yet (reconnect attempt {attempt})")
+            }
+            LinkState::Connecting { .. } => "the server has not answered yet".into(),
+            LinkState::Up { .. } => "the connection was replaced while waiting".into(),
+            LinkState::Idle => "not connected yet".into(),
+            LinkState::Stopped => "the connection was stopped".into(),
         }
     }
 }

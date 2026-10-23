@@ -42,6 +42,8 @@ pub enum TransportError {
     Timeout { stage: &'static str, addr: String },
     #[error("session closed: {0}")]
     Closed(String),
+    #[error("{0}")]
+    NotReady(String),
     #[error("remote forward {addr}:{port} denied")]
     ForwardDenied { addr: String, port: u16 },
     #[error("socks: {0}")]

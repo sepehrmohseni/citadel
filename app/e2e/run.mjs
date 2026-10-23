@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
@@ -197,6 +198,30 @@ try {
   await step("no console errors", async () => {
     if (app.errors.length) throw new Error(app.errors.join("\n"));
   });
+
+  const pidFile = process.env.CITADEL_E2E_SSHD_PIDFILE;
+  const restart = process.env.CITADEL_E2E_SSHD_START;
+  if (pidFile && restart) {
+    await step("a dropped server is waited for and the shell comes back by itself", async () => {
+      const key = JSON.stringify(await app.eval("window.__citadel.terminals()[0]"));
+      const tree = [readFileSync(pidFile, "utf8").trim()];
+      for (let i = 0; i < tree.length; i++) {
+        const kids = spawnSync("pgrep", ["-P", tree[i]], { encoding: "utf8" }).stdout.split(/\s+/).filter(Boolean);
+        tree.push(...kids);
+      }
+      spawnSync("kill", tree);
+      await app.waitFor("[...document.querySelectorAll('.term-overlay')].some((o) => !o.hidden)", 30000, "session closed overlay");
+      await app.eval("([...document.querySelectorAll('.term-overlay:not([hidden]) button')].find((b) => /reconnect/i.test(b.textContent))?.click(), true)");
+      await app.waitFor("document.querySelector('.term-overlay:not([hidden])')?.innerText.includes('Waiting for') === true", 70000, "waiting overlay");
+      const detail = await app.eval("document.querySelector('.term-overlay:not([hidden]) .err-detail')?.textContent ?? ''");
+      if (!detail || /[{}]|attempt:/.test(detail)) throw new Error(`unexpected waiting detail: ${JSON.stringify(detail)}`);
+      await shot("18-waiting-for-server");
+      execFileSync("sh", ["-c", restart]);
+      await app.waitFor("[...document.querySelectorAll('.term-overlay')].every((o) => o.hidden)", 150000, "shell reopened without a click");
+      await app.eval(`window.__citadel.type(${key}, "echo back-$((40+2))\\r")`);
+      await app.waitFor(`window.__citadel.text(${key}).includes("back-42")`, 15000, "shell works after the server returns");
+    });
+  }
 } finally {
   await app.close();
 }

@@ -314,6 +314,9 @@ function createPane(host: Id, changed: () => void): Pane {
   let blinkTimer: ReturnType<typeof setTimeout> | undefined;
   let watchTimer: ReturnType<typeof setInterval> | undefined;
   let knownPorts: Set<number> | null = null;
+  let waiting = false;
+  let waitTimer: ReturnType<typeof setTimeout> | undefined;
+  let waitDetail: HTMLElement | null = null;
 
   const attachGl = () => {
     if (glTimer) clearTimeout(glTimer);
@@ -431,13 +434,63 @@ function createPane(host: Id, changed: () => void): Pane {
     ]);
   };
 
+  const linkText = () => {
+    const s = links.get().get(host);
+    if (!s) return "starting a new connection";
+    if (s.state === "connecting") return s.attempt > 1 ? `reconnect attempt ${s.attempt} in progress` : "connecting";
+    if (s.state === "backoff") return `${s.error} · next attempt in ${Math.max(1, Math.ceil(s.retry_ms / 1000))}s`;
+    return s.state === "up" ? "connected, opening the shell" : s.state;
+  };
+
+  const stopWaiting = () => {
+    waiting = false;
+    waitDetail = null;
+    if (waitTimer) clearTimeout(waitTimer);
+    waitTimer = undefined;
+  };
+
+  const waitForLink = (e: unknown) => {
+    if (waiting) return;
+    waiting = true;
+    waitDetail = h("span", { class: "muted err-detail" }, linkText());
+    showOverlay([
+      h("div", { class: "spinner" }),
+      h("strong", null, `Waiting for ${label}`),
+      h("span", { class: "muted" }, "The server is not answering. Citadel keeps trying and opens the shell when it is back."),
+      waitDetail,
+      h(
+        "div",
+        { class: "row" },
+        btn("retry now", {
+          primary: true,
+          icon: "refresh",
+          onClick: () => {
+            void api.linkReconnect(host).catch(() => undefined);
+            void connect();
+          },
+        }),
+        btn("stop", {
+          onClick: () => {
+            stopWaiting();
+            attempt++;
+            connecting = false;
+            setTone("err");
+            failed(e);
+          },
+        }),
+      ),
+    ]);
+  };
+
   const connect = async () => {
     if (disposed || connecting) return;
     connecting = true;
+    if (waitTimer) clearTimeout(waitTimer);
+    waitTimer = undefined;
     const mine = ++attempt;
     exitCode = null;
     setTone("warn");
-    showOverlay([h("div", { class: "spinner" }), h("strong", null, `Connecting to ${label}`), h("span", { class: "muted" }, "Negotiating keys and authenticating…")]);
+    if (!waiting) showOverlay([h("div", { class: "spinner" }), h("strong", null, `Connecting to ${label}`), h("span", { class: "muted" }, "Negotiating keys and authenticating…")]);
     const data = new Channel<ArrayBuffer>();
     let processed = 0;
     let acked = 0;
@@ -473,6 +526,7 @@ function createPane(host: Id, changed: () => void): Pane {
       pid = opened_;
       ackFor = pid;
       ack();
+      stopWaiting();
       hideOverlay();
       setTone("ok");
       if (visible) term.focus();
@@ -480,6 +534,12 @@ function createPane(host: Id, changed: () => void): Pane {
     } catch (e) {
       if (mine !== attempt) return;
       pid = null;
+      if (errCode(e) === "not_ready" && !disposed) {
+        waitForLink(e);
+        waitTimer = setTimeout(() => void connect(), 3000);
+        return;
+      }
+      stopWaiting();
       setTone("err");
       failed(e);
     } finally {
@@ -755,6 +815,7 @@ function createPane(host: Id, changed: () => void): Pane {
   const ro = new ResizeObserver(() => requestAnimationFrame(refit));
   const unsubLink = links.subscribe((m) => {
     const s = m.get(host);
+    if (waiting && waitDetail) waitDetail.textContent = linkText();
     if (!s || pid === null) return;
     if (s.state === "backoff" || s.state === "connecting") setTone("warn");
     else if (s.state === "up" && tone !== "ok") setTone("ok");
@@ -838,6 +899,7 @@ function createPane(host: Id, changed: () => void): Pane {
       bcastListeners.delete(renderBcast);
       bcastChanged();
       disposed = true;
+      stopWaiting();
       attempt++;
       live.delete(key);
       unsubLink();

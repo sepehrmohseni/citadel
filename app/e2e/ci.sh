@@ -33,6 +33,8 @@ cargo build --manifest-path "$root/Cargo.toml" -p citadel-app --features tauri/c
 export CITADEL_BIN="$root/target/e2e/debug/citadel-app"
 export CITADEL_E2E_KEY="$work/client"
 export CITADEL_E2E_SSH_PORT="$port"
+export CITADEL_E2E_SSHD_PIDFILE="$work/sshd.pid"
+export CITADEL_E2E_SSHD_START="$sshd -f $work/sshd_config"
 export CITADEL_E2E_OUT="${CITADEL_E2E_OUT:-$root/app/e2e-artifacts}"
 cd "$root/app"
 xvfb-run -a -s "-screen 0 1440x900x24" node e2e/run.mjs

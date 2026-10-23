@@ -51,6 +51,7 @@ impl AppError {
                 "key_encrypted"
             }
             Self::Transport(TransportError::Timeout { .. }) => "timeout",
+            Self::Transport(TransportError::NotReady(_)) => "not_ready",
             Self::Transport(_) => "transport",
             Self::Telemetry(_) => "telemetry",
             Self::Config(_) => "config",

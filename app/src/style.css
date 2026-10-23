@@ -1700,7 +1700,12 @@ select.input {
   display: grid;
   place-items: center;
   background: rgba(8, 8, 8, 0.82);
+  overscroll-behavior: contain;
   z-index: 5;
+}
+
+.term-layout.tab-pane {
+  overflow: hidden;
 }
 
 .term-overlay-card .err-detail {
