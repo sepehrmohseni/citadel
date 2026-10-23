@@ -78,14 +78,30 @@ export class App {
         XDG_CACHE_HOME: `${home}/.cache`,
         WEBKIT_INSPECTOR_HTTP_SERVER: `127.0.0.1:${port}`,
         GDK_BACKEND: "x11",
+        NO_AT_BRIDGE: "1",
         ...env,
       },
       stdio: ["ignore", "ignore", "pipe"],
     });
-    child.stderr.on("data", () => undefined);
+    const log = [];
+    child.stderr.on("data", (d) => {
+      log.push(d);
+      if (log.length > 400) log.shift();
+    });
+    let exited = null;
+    let last = "no attempt";
+    child.on("exit", (code, sig) => {
+      exited = sig ?? code;
+    });
+    const fail = (why) => {
+      const tail = Buffer.concat(log).toString().slice(-6000);
+      const state = exited === null ? `app alive, last probe: ${last}` : `app exited: ${exited}`;
+      return new Error(`${why} (${state})\n--- app stderr ---\n${tail}`);
+    };
     const app = new App(child, port, tools);
-    const deadline = Date.now() + 30000;
+    const deadline = Date.now() + 60000;
     for (;;) {
+      if (exited !== null) throw fail("app died before the inspector came up");
       try {
         const html = await (await fetch(`http://127.0.0.1:${port}/`)).text();
         const m = /socket\/(\d+)\/(\d+)\/WebPage/.exec(html);
@@ -93,10 +109,11 @@ export class App {
           await app.#connect(`ws://127.0.0.1:${port}/${m[0]}`);
           break;
         }
-      } catch {
-        if (Date.now() > deadline) throw new Error("inspector did not come up");
+      } catch (e) {
+        last = String(e?.cause?.code ?? e?.cause ?? e);
+        if (Date.now() > deadline) throw fail("inspector did not come up");
       }
-      if (Date.now() > deadline) throw new Error("no inspectable page");
+      if (Date.now() > deadline) throw fail("no inspectable page");
       await sleep(250);
     }
     await app.waitFor("document.readyState === 'complete'");
