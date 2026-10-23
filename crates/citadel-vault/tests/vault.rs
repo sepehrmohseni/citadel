@@ -132,7 +132,9 @@ fn secrets_roundtrip() -> Res {
     }
     let h = v.get::<HostProfile>(h.id)?.ok_or("missing")?;
     assert!(matches!(&h.auth, Auth::Password(p) if p.expose_secret() == "s3cret"));
-    let raw = std::fs::read(v.path())?;
+    let path = v.path().to_path_buf();
+    drop(v);
+    let raw = std::fs::read(&path)?;
     for needle in [&b"hunter2"[..], b"s3cret", b"db.internal", b"OPENSSH"] {
         assert!(!raw.windows(needle.len()).any(|w| w == needle));
     }
