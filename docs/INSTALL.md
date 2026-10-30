@@ -258,8 +258,13 @@ checkbox; it is off by default and a silent uninstall never deletes data.
 **Tag push `v*`.** The tag must equal `v` plus the `version` in
 `app/src-tauri/tauri.conf.json`, otherwise the run fails before building.
 The workflow creates a draft release (or reuses an existing draft for the same
-tag, and refuses to touch a published one), builds on three runners, attaches
-every installer, then downloads all release assets and attaches `SHA256SUMS`.
+tag, and refuses to touch a published one). The build jobs run with read-only
+repository access and never see the release token or the signing key. The APK
+is built unsigned and signed in a separate job that runs no build code and
+checks the result against the release certificate. A final publish job, which
+also runs no build code, computes `SHA256SUMS` from the files CI produced and
+attaches everything to the draft, checking again that it is still a draft.
+Every third-party action is pinned to a commit.
 Review the draft and publish it by hand; until then the install scripts report
 "no published release found".
 

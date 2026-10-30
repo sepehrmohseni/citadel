@@ -275,21 +275,44 @@ linux_install() {
     appimage_install
 }
 
+root_sha256_of() {
+    if have sha256sum; then
+        sudo sha256sum "$1" | awk '{ print tolower($1) }'
+    elif have shasum; then
+        sudo shasum -a 256 "$1" | awk '{ print tolower($1) }'
+    else
+        sudo openssl dgst -sha256 "$1" | awk '{ print tolower($NF) }'
+    fi
+}
+
 system_install() {
     chmod 755 "$CITADEL_TMP"
     chmod 644 "$CITADEL_FILE"
+    pkg="$CITADEL_FILE"
+    rootdir=""
     if [ -n "$CITADEL_SUDO" ]; then
         say "running the package manager through sudo (it may ask for your password)"
+        rootdir=$(sudo mktemp -d) || die "could not create a private directory as root"
+        pkg="$rootdir/$(basename "$CITADEL_FILE")"
+        sudo install -m 0644 "$CITADEL_FILE" "$pkg" || die "could not stage the package as root"
+        sudo chmod 755 "$rootdir"
+        [ "$(root_sha256_of "$pkg")" = "$want" ] || {
+            sudo rm -rf "$rootdir"
+            die "the package changed after it was verified; not installing"
+        }
     fi
+    status=0
     if [ "$1" = deb ]; then
-        as_root apt-get install -y "$CITADEL_FILE" </dev/null
+        as_root apt-get install -y "$pkg" </dev/null || status=$?
     elif have dnf; then
-        as_root dnf install -y "$CITADEL_FILE" </dev/null
+        as_root dnf install -y "$pkg" </dev/null || status=$?
     elif have zypper; then
-        as_root zypper --non-interactive install --allow-unsigned-rpm "$CITADEL_FILE" </dev/null
+        as_root zypper --non-interactive install --allow-unsigned-rpm "$pkg" </dev/null || status=$?
     else
-        as_root yum install -y "$CITADEL_FILE" </dev/null
+        as_root yum install -y "$pkg" </dev/null || status=$?
     fi
+    [ -z "$rootdir" ] || sudo rm -rf "$rootdir"
+    return "$status"
 }
 
 desktop_safe() {

@@ -63,13 +63,23 @@ class CitadelPlugin(private val activity: Activity) : Plugin(activity) {
           put(MediaStore.Downloads.DISPLAY_NAME, args.name)
           put(MediaStore.Downloads.MIME_TYPE, args.mime)
           put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Citadel")
+          put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val resolver = activity.contentResolver
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
           ?: throw IllegalStateException("Android refused to create the file")
-        val out = resolver.openOutputStream(uri) ?: throw IllegalStateException("Android refused to open the file")
-        out.use { it.write(bytes) }
-        "Download/Citadel/${args.name}"
+        try {
+          val out = resolver.openOutputStream(uri) ?: throw IllegalStateException("Android refused to open the file")
+          out.use { it.write(bytes) }
+          resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+        } catch (e: Exception) {
+          resolver.delete(uri, null, null)
+          throw e
+        }
+        val shown = resolver.query(uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null)?.use { c ->
+          if (c.moveToFirst()) c.getString(0) else null
+        } ?: args.name
+        "Download/Citadel/$shown"
       } else {
         val dir = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "Citadel")
         dir.mkdirs()

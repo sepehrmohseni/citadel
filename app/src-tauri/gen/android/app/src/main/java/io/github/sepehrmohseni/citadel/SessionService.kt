@@ -7,13 +7,22 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 
 class SessionService : Service() {
   private var wake: PowerManager.WakeLock? = null
+  private val handler = Handler(Looper.getMainLooper())
+  private val refresh = object : Runnable {
+    override fun run() {
+      wake?.acquire(WAKE_MS)
+      handler.postDelayed(this, WAKE_MS / 2)
+    }
+  }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -50,10 +59,13 @@ class SessionService : Service() {
       .apply { setReferenceCounted(false) }
     lock.acquire(WAKE_MS)
     wake = lock
+    handler.removeCallbacks(refresh)
+    handler.postDelayed(refresh, WAKE_MS / 2)
     return START_NOT_STICKY
   }
 
   override fun onDestroy() {
+    handler.removeCallbacks(refresh)
     wake?.let { if (it.isHeld) it.release() }
     wake = null
     super.onDestroy()
