@@ -486,6 +486,8 @@ export const api = {
 
   ptyOpen: (host: Id, cols: number, rows: number, data: Channel<ArrayBuffer>, status: Channel<PtyStatus>) =>
     invoke<number>("pty_open", { host, cols, rows, data, status }),
+  keepAlive: (sessions: number, text: string) => invoke<void>("keep_alive", { sessions, text }),
+  saveDownload: (name: string, content: string) => invoke<string>("save_download", { name, content }),
   ptyWrite: (pid: number, bytes: Uint8Array) => invoke<void>("pty_write", bytes, { headers: { "x-pty": String(pid) } }),
   ptyAck: (pid: number, bytes: number) => invoke<void>("pty_ack", { pid, bytes }),
   ptyResize: (pid: number, cols: number, rows: number) => invoke<void>("pty_resize", { pid, cols, rows }),

@@ -1,7 +1,8 @@
 import { api, type FontFamily } from "./api";
 import { h } from "./dom";
+import { BUNDLED_FONTS, DEFAULT_FONT } from "./fonts";
 
-const BUNDLED = "JetBrains Mono Variable";
+const BUNDLED = DEFAULT_FONT;
 const SAMPLE = "Ag 0O 1lI {} => ~/";
 
 export function primaryFamily(stack: string): string {
@@ -70,11 +71,11 @@ export function fontPicker(current: string, onChange: (stack: string) => void): 
     };
     const render = () => {
       const q = query.value.trim().toLowerCase();
-      const mono = fonts.filter((f) => f.mono && f.name !== BUNDLED);
+      const mono = fonts.filter((f) => f.mono && !BUNDLED_FONTS.includes(f.name));
       const prop = showAll ? fonts.filter((f) => !f.mono) : [];
       const match = (f: string) => !q || f.toLowerCase().includes(q);
       const groups: [string, string[]][] = [
-        ["bundled", [BUNDLED].filter(match)],
+        ["bundled with citadel", BUNDLED_FONTS.filter(match)],
         ["monospace on this system", mono.map((f) => f.name).filter(match)],
         ["proportional", prop.map((f) => f.name).filter(match)],
       ];

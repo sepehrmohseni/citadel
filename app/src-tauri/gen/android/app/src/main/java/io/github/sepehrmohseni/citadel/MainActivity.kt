@@ -3,6 +3,7 @@ package io.github.sepehrmohseni.citadel
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
@@ -23,5 +24,10 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
       WindowInsetsCompat.CONSUMED
     }
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        moveTaskToBack(true)
+      }
+    })
   }
 }

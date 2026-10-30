@@ -74,6 +74,8 @@ const COMMANDS: &[&str] = &[
     "prompt_answer",
     "links_list",
     "link_reconnect",
+    "keep_alive",
+    "save_download",
     "vault_audit",
     "recording_save",
 ];

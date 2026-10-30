@@ -4,6 +4,7 @@ mod dto;
 mod error;
 mod grants;
 mod hotkey;
+mod mobile;
 mod plan;
 mod prefs;
 mod safety;
@@ -125,7 +126,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(mobile::plugin());
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_global_shortcut::Builder::new()
@@ -220,6 +222,8 @@ pub fn run() {
             cmd::misc::prompt_answer,
             cmd::misc::links_list,
             cmd::misc::link_reconnect,
+            cmd::device::keep_alive,
+            cmd::device::save_download,
             cmd::audit::vault_audit,
             cmd::audit::recording_save
         ])

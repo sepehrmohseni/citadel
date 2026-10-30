@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod config;
+pub mod device;
 pub mod files;
 pub mod fleet;
 pub mod fonts;

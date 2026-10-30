@@ -62,6 +62,7 @@ const ICONS: Record<string, string> = {
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4",
   play: "M8 5l11 7-11 7z",
   stop: "M7 7h10v10H7z",
+  record: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z",
   edit: "M4 20h4l10-10-4-4L4 16zM13.5 6.5l4 4",
   trash: "M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   upload: "M12 16V4M7 9l5-5 5 5M4 20h16",
@@ -154,6 +155,10 @@ export function fuzzy(query: string, text: string): number {
     ti = found + 1;
   }
   return score;
+}
+
+export function touch(): boolean {
+  return document.documentElement.classList.contains("touch");
 }
 
 export function coalesce(fn: () => void): () => void {

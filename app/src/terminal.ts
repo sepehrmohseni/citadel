@@ -9,12 +9,14 @@ import { Terminal } from "@xterm/xterm";
 import { Channel, api, errCode, errText, events, type Id, type Listener, type Prefs, type PtyStatus } from "./api";
 import { bytes, h, icon, terminalChord } from "./dom";
 import { bind, bindings, pretty } from "./keymap";
+import { DEFAULT_FONT, loadFont } from "./fonts";
+import { primaryFamily } from "./pickers";
 import { forwardPort, PortsPanel } from "./ports";
 import { currentTab, notifyLayout, openFiles, retitleTab, type Tab, type TabTone } from "./shell";
 import { hostById, links, prefs, refreshHosts, updatePrefs } from "./store";
 import { Telemetry } from "./telemetry";
 import { themeFor } from "./themes";
-import { actionToast, btn, confirmBox, contextMenu, copyText, fail, input, readClipboard, toast, writeClipboard } from "./ui";
+import { actionToast, btn, confirmBox, contextMenu, copyText, fail, input, modal, readClipboard, toast, writeClipboard } from "./ui";
 
 const encoder = new TextEncoder();
 const ACK_STEP = 256 * 1024;
@@ -106,9 +108,27 @@ export interface Pane {
   send(text: string): void;
   text(): string;
   renderer(): string;
+  connected(): boolean;
 }
 
 const live = new Map<string, Pane>();
+const ANDROID = /Android/i.test(navigator.userAgent);
+let keepQueued = false;
+let keepLast = "";
+
+function syncKeepAlive(): void {
+  if (!ANDROID || keepQueued) return;
+  keepQueued = true;
+  queueMicrotask(() => {
+    keepQueued = false;
+    const up = [...live.values()].filter((p) => p.connected());
+    const names = [...new Set(up.map((p) => p.label))].join(", ");
+    const sig = `${up.length}|${names}`;
+    if (sig === keepLast) return;
+    keepLast = sig;
+    void api.keepAlive(up.length, names).catch(() => undefined);
+  });
+}
 const byEl = new WeakMap<Element, Pane>();
 const broadcast = new Set<string>();
 const bcastListeners = new Set<() => void>();
@@ -235,7 +255,7 @@ function createPane(host: Id, changed: () => void): Pane {
   );
   const overlay = h("div", { class: "term-overlay", hidden: true });
   const bcastEl = h("span", { class: "bcast", hidden: true });
-  const recEl = h("span", { class: "rec", hidden: true });
+  const recEl = h("button", { type: "button", class: "rec", hidden: true, title: "Stop recording and save" });
   let rec: Recording | null = null;
   let recTimer: ReturnType<typeof setInterval> | undefined;
   const renderBcast = () => {
@@ -247,33 +267,55 @@ function createPane(host: Id, changed: () => void): Pane {
   const startRec = () => {
     rec = { start: performance.now(), cols: term.cols, rows: term.rows, events: [], decoder: new TextDecoder() };
     recEl.hidden = false;
+    recBtn.hidden = true;
     const tick = () => {
       if (!rec) return;
       const s = Math.floor((performance.now() - rec.start) / 1000);
-      recEl.textContent = `● rec ${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+      recEl.textContent = `■ stop rec ${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
     };
     tick();
     recTimer = setInterval(tick, 1000);
-    toast("Recording output. Keystrokes are never recorded.", "info", 3000);
+    toast("Recording output. Keystrokes are never recorded. Tap the red stop button to save.", "info", 4000);
   };
   const stopRec = async () => {
     const r = rec;
     rec = null;
     recEl.hidden = true;
+    recBtn.hidden = false;
     if (recTimer) clearInterval(recTimer);
-    if (!r || !r.events.length) return;
+    if (!r) return;
+    if (!r.events.length) {
+      toast("Recording stopped. Nothing was printed, so there is nothing to save.", "info", 4000);
+      return;
+    }
     const header = JSON.stringify({ version: 2, width: r.cols, height: r.rows, timestamp: Math.floor(Date.now() / 1000), title: label, env: { TERM: "xterm-256color" } });
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const name = `${label.replace(/[^\w.-]+/g, "_")}-${stamp}.cast`;
+    const body = `${header}\n${r.events.join("\n")}\n`;
     try {
-      const target = await api.pickSave("Save recording", `${label.replace(/[^\w.-]+/g, "_")}-${stamp}.cast`, [{ name: "asciicast", extensions: ["cast"] }]);
-      if (!target) return;
-      const size = await api.recordingSave(target.token, `${header}\n${r.events.join("\n")}\n`);
-      toast(`Saved ${bytes(size)} recording. Replay with: asciinema play`, "ok", 6000);
+      if (ANDROID) {
+        const where = await api.saveDownload(name, body);
+        toast(`Recording saved to ${where}. Replay with: asciinema play`, "ok", 8000);
+        return;
+      }
+      const target = await api.pickSave("Save recording", name, [{ name: "asciicast", extensions: ["cast"] }]);
+      if (!target) {
+        toast("Recording discarded.", "info", 3000);
+        return;
+      }
+      const size = await api.recordingSave(target.token, body);
+      toast(`Saved ${bytes(size)} recording to ${target.path}. Replay with: asciinema play`, "ok", 8000);
     } catch (e) {
       fail(e, "Recording not saved");
     }
   };
   const toggleRec = () => (rec ? void stopRec() : startRec());
+  recEl.addEventListener("click", () => void stopRec());
+  const desk = <T extends HTMLElement>(el: T): T => {
+    el.classList.add("desk-only");
+    return el;
+  };
+  const recBtn = desk(btn("", { icon: "record", small: true, ghost: true, title: `Record session${hint("term.record")}`, onClick: toggleRec }));
   const bar = h(
     "div",
     { class: "term-bar" },
@@ -283,19 +325,29 @@ function createPane(host: Id, changed: () => void): Pane {
       ? h("span", { class: "chain" }, icon("link", 12), meta.jump.map((j) => hostById(j)?.label ?? "?").join(" → "))
       : null,
     h("span", { class: "spacer" }),
-    btn("", { icon: "search", small: true, ghost: true, title: `Find${hint("term.find")}`, onClick: () => openFind() }),
+    desk(btn("", { icon: "search", small: true, ghost: true, title: `Find${hint("term.find")}`, onClick: () => openFind() })),
     btn("", { icon: "folder", small: true, ghost: true, title: `Open files${hint("term.files")}`, onClick: () => openFiles(host) }),
-    btn("", { icon: "plug", small: true, ghost: true, title: `Remote ports${hint("term.ports")}`, onClick: () => togglePorts() }),
+    desk(btn("", { icon: "plug", small: true, ghost: true, title: `Remote ports${hint("term.ports")}`, onClick: () => togglePorts() })),
     btn("", { icon: "chart", small: true, ghost: true, title: `Host telemetry${hint("term.telemetry")}`, onClick: () => toggleTelemetry() }),
     recEl,
     bcastEl,
-    btn("", { icon: "broadcast", small: true, ghost: true, title: `Broadcast input${hint("term.broadcast")}`, onClick: () => void toggleBroadcast(key) }),
-    btn("", { icon: "stop", small: true, ghost: true, title: `Record session${hint("term.record")}`, onClick: toggleRec }),
-    btn("", { icon: "split", small: true, ghost: true, title: `Split right${hint("pane.right")}`, onClick: () => splitFrom(api_, "row") }),
-    btn("", { icon: "refresh", small: true, ghost: true, title: "Reconnect", onClick: () => void reconnect() }),
+    desk(btn("", { icon: "broadcast", small: true, ghost: true, title: `Broadcast input${hint("term.broadcast")}`, onClick: () => void toggleBroadcast(key) })),
+    recBtn,
+    desk(btn("", { icon: "split", small: true, ghost: true, title: `Split right${hint("pane.right")}`, onClick: () => splitFrom(api_, "row") })),
+    desk(btn("", { icon: "refresh", small: true, ghost: true, title: "Reconnect", onClick: () => void reconnect() })),
+    btn("", { icon: "dots", small: true, ghost: true, title: "More", onClick: () => moreMenu() }),
   );
+  bar.lastElementChild?.classList.add("touch-only");
   const main = h("div", { class: "term-main" }, bar, hostEl, overlay, findBox);
-  const el = h("div", { class: "term-pane", style: { background: themeFor(p?.theme).theme.background ?? "" } }, main, portsPanel.el, tele.el);
+  const side = (title: string, panel: HTMLElement, close: () => void) =>
+    h("div", { class: "term-side" }, h("div", { class: "term-side-head" }, h("strong", null, title), btn("", { icon: "close", small: true, ghost: true, title: `Close ${title.toLowerCase()}`, onClick: close })), panel);
+  const el = h(
+    "div",
+    { class: "term-pane", style: { background: themeFor(p?.theme).theme.background ?? "" } },
+    main,
+    side("Remote ports", portsPanel.el, () => togglePorts()),
+    side("Telemetry", tele.el, () => toggleTelemetry()),
+  );
 
   let gl: WebglAddon | null = null;
   let glTimer: ReturnType<typeof setTimeout> | undefined;
@@ -529,6 +581,7 @@ function createPane(host: Id, changed: () => void): Pane {
       stopWaiting();
       hideOverlay();
       setTone("ok");
+      syncKeepAlive();
       if (visible) term.focus();
       armPortWatch();
     } catch (e) {
@@ -550,6 +603,7 @@ function createPane(host: Id, changed: () => void): Pane {
   const ended = () => {
     pid = null;
     outbox = [];
+    syncKeepAlive();
     stopPortWatch();
     if (disposed) return;
     setTone("idle");
@@ -696,42 +750,125 @@ function createPane(host: Id, changed: () => void): Pane {
     for (const el of latchEls) el.classList.remove("on");
     return out;
   };
-  const arrow = (k: string) => () => (term.modes.applicationCursorKeysMode ? `\x1bO${k}` : `\x1b[${k}`);
-  const touchKeys: [string, string | (() => string)][] = [
-    ["esc", "\x1b"],
-    ["tab", "\t"],
-    ["ctrl", "ctrl"],
-    ["alt", "alt"],
-    ["←", arrow("D")],
-    ["↑", arrow("A")],
-    ["↓", arrow("B")],
-    ["→", arrow("C")],
-    ["|", "|"],
-    ["~", "~"],
-    ["/", "/"],
-    ["-", "-"],
+  const cursorKey = (k: string) => () => (term.modes.applicationCursorKeysMode ? `\x1bO${k}` : `\x1b[${k}`);
+  type KeySpec = [label: string, out: string | (() => string)];
+  const BASE: KeySpec[] = [
+    ["esc", "\x1b"], ["/", "/"], ["|", "|"], ["-", "-"], ["home", cursorKey("H")], ["↑", cursorKey("A")], ["end", cursorKey("F")], ["pgup", "\x1b[5~"], ["fn", "fn"],
+    ["tab", "\t"], ["ctrl", "ctrl"], ["alt", "alt"], ["←", cursorKey("D")], ["↓", cursorKey("B")], ["→", cursorKey("C")], ["pgdn", "\x1b[6~"], ["~", "~"], ["⌨", "kbd"],
   ];
-  const keysEl = h(
-    "div",
-    { class: "term-keys", role: "toolbar", "aria-label": "Terminal keys" },
-    ...touchKeys.map(([label, out]) => {
-      const b = h("button", { class: "term-key", type: "button", tabindex: "-1", dataset: { key: label } }, label);
-      b.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        if (out === "ctrl" || out === "alt") {
-          latch[out] = !latch[out];
-          b.classList.toggle("on", latch[out]);
-        } else {
-          const seq = typeof out === "function" ? out() : out;
-          asUser(() => term.input(seq, true));
-        }
-        term.focus();
-      });
-      if (out === "ctrl" || out === "alt") latchEls.push(b);
-      return b;
-    }),
-  );
+  const FN: KeySpec[] = [
+    ["f1", "\x1bOP"], ["f2", "\x1bOQ"], ["f3", "\x1bOR"], ["f4", "\x1bOS"], ["f5", "\x1b[15~"], ["f6", "\x1b[17~"], ["f7", "\x1b[18~"], ["f8", "\x1b[19~"], ["fn", "fn"],
+    ["f9", "\x1b[20~"], ["f10", "\x1b[21~"], ["f11", "\x1b[23~"], ["f12", "\x1b[24~"], ["ins", "\x1b[2~"], ["del", "\x1b[3~"], ["`", "`"], ["\\", "\\"], ["⌨", "kbd"],
+  ];
+  let fnLayer = false;
+  const keysEl = h("div", { class: "term-keys", role: "toolbar", "aria-label": "Terminal keys" });
+  const press = (out: KeySpec[1], b: HTMLElement) => {
+    if (out === "ctrl" || out === "alt") {
+      latch[out] = !latch[out];
+      b.classList.toggle("on", latch[out]);
+      if (latch[out]) term.focus();
+    } else if (out === "fn") {
+      fnLayer = !fnLayer;
+      renderKeys();
+    } else if (out === "kbd") {
+      if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
+      else term.focus();
+    } else {
+      const seq = typeof out === "function" ? out() : out;
+      asUser(() => term.input(seq, true));
+    }
+  };
+  const renderKeys = () => {
+    latchEls.length = 0;
+    keysEl.replaceChildren(
+      ...(fnLayer ? FN : BASE).map(([label, out]) => {
+        const on = (out === "ctrl" || out === "alt") && latch[out];
+        const b = h("button", { class: `term-key${on || (out === "fn" && fnLayer) ? " on" : ""}`, type: "button", tabindex: "-1", dataset: { key: label } }, label);
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          press(out, b);
+        });
+        if (out === "ctrl" || out === "alt") latchEls.push(b);
+        return b;
+      }),
+    );
+  };
+  renderKeys();
   main.append(keysEl);
+
+  const lines = (from: number, to: number) => {
+    const b = term.buffer.active;
+    const out: string[] = [];
+    for (let i = from; i < Math.min(to, b.length); i++) {
+      const line = b.getLine(i);
+      if (!line) continue;
+      const text = line.translateToString(true);
+      if (line.isWrapped && out.length) out[out.length - 1] += text;
+      else out.push(text);
+    }
+    return out.join("\n").replace(/\s+$/, "");
+  };
+  const copyScreen = () => {
+    const b = term.buffer.active;
+    const text = lines(b.viewportY, b.viewportY + term.rows);
+    const pre = h("pre", { class: "copy-pre" }, text);
+    modal({
+      title: "Select text",
+      wide: true,
+      body: h("div", { class: "stack" }, h("p", { class: "muted" }, "Long-press to select, or copy everything on screen."), pre),
+      actions: [
+        { label: "close", kind: "ghost", run: () => undefined },
+        {
+          label: "copy",
+          kind: "primary",
+          run: () => {
+            const sel = window.getSelection()?.toString() ?? "";
+            return copyText(sel && pre.contains(window.getSelection()?.anchorNode ?? null) ? sel : text, "Copied");
+          },
+        },
+      ],
+    });
+  };
+  const copySession = () => {
+    const text = lines(0, term.buffer.active.length);
+    void copyText(text, `Copied ${text.split("\n").length} lines`);
+  };
+  const moreMenu = () => {
+    const items: [string, string, () => void][] = [
+      ["copy", "Copy from screen", copyScreen],
+      ["copy", "Copy whole session", copySession],
+      ["import", "Paste", () => pasteClipboard()],
+      ["search", "Find in scrollback", () => openFind()],
+      ["folder", "Files", () => openFiles(host)],
+      ["plug", "Remote ports", () => togglePorts()],
+      ["chart", "Host telemetry", () => toggleTelemetry()],
+      [rec ? "stop" : "record", rec ? "Stop recording and save" : "Record session", () => toggleRec()],
+      ["refresh", "Reconnect", () => void reconnect()],
+      ["trash", "Clear screen", () => term.clear()],
+    ];
+    const m = modal({
+      title: label,
+      body: h(
+        "div",
+        { class: "sheet" },
+        ...items.map(([ic, text, run]) =>
+          h(
+            "button",
+            {
+              type: "button",
+              class: "sheet-item",
+              onClick: () => {
+                m.close();
+                run();
+              },
+            },
+            icon(ic, 16),
+            h("span", null, text),
+          ),
+        ),
+      ),
+    });
+  };
 
   term.onData((raw) => {
     const d = applyLatch(raw);
@@ -824,7 +961,15 @@ function createPane(host: Id, changed: () => void): Pane {
     if (!np || !opened) return;
     term.options.fontSize = np.font_size;
     term.options.lineHeight = np.line_height;
-    term.options.fontFamily = withFallback(np.font_family);
+    const family = withFallback(np.font_family);
+    if (term.options.fontFamily !== family) {
+      void loadFont(primaryFamily(np.font_family)).then(() => {
+        if (disposed || withFallback(prefs.get()?.font_family ?? "monospace") !== family) return;
+        term.options.fontFamily = family;
+        term.clearTextureAtlas();
+        refit();
+      });
+    }
     term.options.cursorBlink = np.cursor_blink;
     wakeCursor();
     term.options.cursorStyle = np.cursor_style as "block" | "bar" | "underline";
@@ -860,7 +1005,7 @@ function createPane(host: Id, changed: () => void): Pane {
     wakeCursor();
     ro.observe(hostEl);
     refit();
-    void fontsReady.then(() => {
+    void Promise.all([fontsReady, loadFont(primaryFamily(prefs.get()?.font_family ?? DEFAULT_FONT))]).then(() => {
       if (disposed) return;
       term.options.fontFamily = withFallback(prefs.get()?.font_family ?? "monospace");
       term.clearTextureAtlas();
@@ -902,6 +1047,7 @@ function createPane(host: Id, changed: () => void): Pane {
       stopWaiting();
       attempt++;
       live.delete(key);
+      syncKeepAlive();
       unsubLink();
       unsubPrefs();
       ro.disconnect();
@@ -932,6 +1078,7 @@ function createPane(host: Id, changed: () => void): Pane {
       return out.join("\n");
     },
     renderer: () => (gl ? "webgl" : "dom"),
+    connected: () => pid !== null,
   };
   byEl.set(el, api_);
   live.set(key, api_);

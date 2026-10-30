@@ -8,12 +8,39 @@ importers:
 
   .:
     dependencies:
+      '@fontsource-variable/cascadia-code':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/cascadia-mono':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/fira-code':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/inconsolata':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fontsource-variable/jetbrains-mono':
         specifier: 5.3.0
         version: 5.3.0
+      '@fontsource-variable/noto-sans-mono':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/roboto-mono':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/source-code-pro':
+        specifier: 5.3.1
+        version: 5.3.1
       '@fontsource-variable/vazirmatn':
         specifier: 5.2.8
         version: 5.2.8
+      '@fontsource/ibm-plex-mono':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/ubuntu-mono':
+        specifier: 5.3.0
+        version: 5.3.0
       '@tauri-apps/api':
         specifier: 2.12.4
         version: 2.12.4
@@ -244,11 +271,38 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@fontsource-variable/cascadia-code@5.3.0':
+    resolution: {integrity: sha512-6I6M029Lum62MGmP0o+rXRrIBiIiptNDC4slPKLPUJiSB7NHZTLb+Ihk9G7jLvUfWziGXHJLjJPJLBzlEPjS1g==}
+
+  '@fontsource-variable/cascadia-mono@5.3.0':
+    resolution: {integrity: sha512-yjP6nT+gBbDKIKQnIvGcM6YCESYH1zcYpsYc/Qd8BlRtY1kdX8ZEfuiqW0ATiph6+o566KDxQmgo061SqvH9pA==}
+
+  '@fontsource-variable/fira-code@5.3.0':
+    resolution: {integrity: sha512-ZhvHeknlicraKVSJBa1NrJnXDVByUkC407zwgELYfmnx3p9g8vwIPfQCxx8YD3K7dAeCdLuHJOHlpMfRsIcApQ==}
+
+  '@fontsource-variable/inconsolata@5.3.0':
+    resolution: {integrity: sha512-3sJ98aPp9rBWhlt+niNQaqaRd5vKo5M5unVWRm4L8g3E73pi5P8DIS4ZuPAtYi0bugDllZRSxrtfPxM17+P6gg==}
+
   '@fontsource-variable/jetbrains-mono@5.3.0':
     resolution: {integrity: sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==}
 
+  '@fontsource-variable/noto-sans-mono@5.3.0':
+    resolution: {integrity: sha512-EgozyWG4nG2U1OT+zfdyHP1L8O0fUFMUBOilVF9urTshqIdfeGV9/FUQxaNHdPvHtV1cQCs1Ql0W1q93SiPK2w==}
+
+  '@fontsource-variable/roboto-mono@5.3.0':
+    resolution: {integrity: sha512-h5r+KY/6qy8JEOj33JgcrFO81YAnvrc1EAwMpl/EPJLb2OIvOy0/jmB5M7qs7x/uXk5JUP5Ux4LrkeOK7faHkQ==}
+
+  '@fontsource-variable/source-code-pro@5.3.1':
+    resolution: {integrity: sha512-N0nZDizh8CQ19+AHHA8Ssb1i/aQf4N2lpRl3qZVH4/9f1yNgWzTkBFpc26v+QQr2hm4By4aiv597BCoEg2SDQg==}
+
   '@fontsource-variable/vazirmatn@5.2.8':
     resolution: {integrity: sha512-2YzXfH4PNOeoZsBsgJgjbnm+IC2nonGyMLX3gXLm8FQrP+wpi1uGBIWYWlEzJ0lmntgdyAc3lRViHHfZWKvbog==}
+
+  '@fontsource/ibm-plex-mono@5.3.0':
+    resolution: {integrity: sha512-eTgnZjZEGk1QtD3ZstF+Vclo2HLAni8YMy34/DxllwZvyz1lR/1RF/xTiAquOBO7MvqBx8D2Ig2WCPMVfdZu7Q==}
+
+  '@fontsource/ubuntu-mono@5.3.0':
+    resolution: {integrity: sha512-hLwLkeAV9YvLSOWExn0heOXy+EB4wKnt648qS5FaqsiCZDS8X9kR/ueIBzzX/vNSXjFkhLRSTKqlOfFvHdD4Bw==}
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
@@ -972,9 +1026,27 @@ snapshots:
   '@esbuild/win32-x64@0.27.7':
     optional: true
 
+  '@fontsource-variable/cascadia-code@5.3.0': {}
+
+  '@fontsource-variable/cascadia-mono@5.3.0': {}
+
+  '@fontsource-variable/fira-code@5.3.0': {}
+
+  '@fontsource-variable/inconsolata@5.3.0': {}
+
   '@fontsource-variable/jetbrains-mono@5.3.0': {}
 
+  '@fontsource-variable/noto-sans-mono@5.3.0': {}
+
+  '@fontsource-variable/roboto-mono@5.3.0': {}
+
+  '@fontsource-variable/source-code-pro@5.3.1': {}
+
   '@fontsource-variable/vazirmatn@5.2.8': {}
+
+  '@fontsource/ibm-plex-mono@5.3.0': {}
+
+  '@fontsource/ubuntu-mono@5.3.0': {}
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 

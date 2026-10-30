@@ -158,6 +158,14 @@ fn writer(core: &Core, pid: u32) -> CmdResult<citadel_ssh::PtyWriter> {
         .ok_or(AppError::NotFound("terminal"))
 }
 
+fn input_bytes(body: &InvokeBody) -> CmdResult<Vec<u8>> {
+    match body {
+        InvokeBody::Raw(b) => Ok(b.clone()),
+        InvokeBody::Json(v) => serde_json::from_value(v.clone())
+            .map_err(|_| AppError::invalid("expected terminal input bytes")),
+    }
+}
+
 #[tauri::command]
 pub async fn pty_write(state: State<'_, AppState>, request: Request<'_>) -> CmdResult<()> {
     let pid = request
@@ -166,15 +174,13 @@ pub async fn pty_write(state: State<'_, AppState>, request: Request<'_>) -> CmdR
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u32>().ok())
         .ok_or_else(|| AppError::invalid("missing x-pty header"))?;
-    let InvokeBody::Raw(bytes) = request.body() else {
-        return Err(AppError::invalid("expected a binary body"));
-    };
+    let bytes = input_bytes(request.body())?;
     if bytes.is_empty() {
         return Ok(());
     }
     state.0.vault.touch();
     let w = writer(&state.0, pid)?;
-    w.write(bytes.clone()).await?;
+    w.write(bytes).await?;
     Ok(())
 }
 
@@ -228,6 +234,18 @@ mod tests {
         assert!(utf8("C.utf8"));
         assert!(!utf8("POSIX"));
         assert!(!utf8("en_US.ISO-8859-1"));
+    }
+
+    #[test]
+    fn input_arrives_raw_or_as_a_json_byte_array() {
+        assert_eq!(
+            input_bytes(&InvokeBody::Raw(b"ls\r".to_vec())).unwrap(),
+            b"ls\r"
+        );
+        let json = InvokeBody::Json(serde_json::json!([108, 115, 13]));
+        assert_eq!(input_bytes(&json).unwrap(), b"ls\r");
+        assert!(input_bytes(&InvokeBody::Json(serde_json::json!({"0": 108}))).is_err());
+        assert!(input_bytes(&InvokeBody::Json(serde_json::json!([300]))).is_err());
     }
 
     #[tokio::test]

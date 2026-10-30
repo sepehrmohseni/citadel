@@ -14,7 +14,7 @@ import {
   type SyncReport,
   type SyncTarget,
 } from "../api";
-import { ago, bytes, clear, debounce, h, icon, kbd } from "../dom";
+import { ago, bytes, clear, debounce, h, icon, kbd, touch } from "../dom";
 import { COMMANDS, bindings, chordOf, conflicts, defaults, getOverrides, isDefault, normalize, onKeymapChange, pretty, suspend } from "../keymap";
 import { fontPicker, stepper } from "../pickers";
 import { go, type Page } from "../shell";
@@ -1386,6 +1386,8 @@ export function settingsPage(): Page {
       const content = h("div", { class: "set-body" });
       let active: Section | null = null;
       const buttons = new Map<SectionId, HTMLButtonElement>();
+      const sections = touch() ? SECTIONS.filter((s) => s.id !== "shortcuts") : SECTIONS;
+      if (!sections.some((s) => s.id === lastSection)) lastSection = "vault";
       const show = (id: SectionId) => {
         active?.dispose?.();
         lastSection = id;
@@ -1398,7 +1400,7 @@ export function settingsPage(): Page {
         }
         root.scrollTop = 0;
       };
-      for (const s of SECTIONS) {
+      for (const s of sections) {
         const b = h("button", { type: "button", onClick: () => show(s.id) }, icon(s.icon, 15), s.label) as HTMLButtonElement;
         buttons.set(s.id, b);
         nav.append(b);
@@ -1406,8 +1408,8 @@ export function settingsPage(): Page {
       nav.addEventListener("keydown", (e) => {
         if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
         e.preventDefault();
-        const i = SECTIONS.findIndex((s) => s.id === lastSection);
-        const next = SECTIONS[(i + (e.key === "ArrowDown" ? 1 : SECTIONS.length - 1)) % SECTIONS.length];
+        const i = sections.findIndex((s) => s.id === lastSection);
+        const next = sections[(i + (e.key === "ArrowDown" ? 1 : sections.length - 1)) % sections.length];
         if (next) {
           show(next.id);
           buttons.get(next.id)?.focus();

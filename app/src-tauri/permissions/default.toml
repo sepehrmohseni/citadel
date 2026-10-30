@@ -76,6 +76,8 @@ permissions = [
   "allow-prompt-answer",
   "allow-links-list",
   "allow-link-reconnect",
+  "allow-keep-alive",
+  "allow-save-download",
   "allow-vault-audit",
   "allow-recording-save",
 ]
