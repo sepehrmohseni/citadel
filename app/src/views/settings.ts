@@ -258,6 +258,7 @@ function importModal(): void {
             n.autostart ? `autostart disabled on ${n.autostart} tunnel${n.autostart === 1 ? "" : "s"}` : "",
             n.agent_forward ? `agent forwarding disabled on ${n.agent_forward} host${n.agent_forward === 1 ? "" : "s"}` : "",
             n.host_keys ? `${n.host_keys} trusted host key${n.host_keys === 1 ? "" : "s"} not imported (verified on first connect)` : "",
+            n.device_only ? `${n.device_only} sync target${n.device_only === 1 ? "" : "s"} and deletion record${n.device_only === 1 ? "" : "s"} skipped (set sync up on this device)` : "",
             n.rejected ? `${n.rejected} malformed record${n.rejected === 1 ? "" : "s"} rejected` : "",
           ].filter(Boolean);
           if (parts.length) toast(`Imported data is quarantined: ${parts.join("; ")}. Re-enable what you trust.`, "warn", 12000);

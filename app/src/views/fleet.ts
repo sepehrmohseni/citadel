@@ -19,7 +19,8 @@ interface Result {
   error: string | null;
 }
 
-const DANGER = /\brm\s+-[a-zA-Z]*[rf]|\bmkfs\b|\bdd\s+if=|\bshutdown\b|\breboot\b|\bpoweroff\b|\bhalt\b|\binit\s+[06]\b|:\(\)\s*\{|\bchmod\s+-R\s+777\b|>\s*\/dev\/[sh]d|\bwipefs\b|\bdrop\s+database\b/i;
+const DANGER =
+  /\brm\s+(?:-[a-zA-Z]*[rf]|--recursive|--force)|\bmkfs\b|\bdd\s+if=|\bshutdown\b|\breboot\b|\bpoweroff\b|\bhalt\b|\binit\s+[06]\b|:\(\)\s*\{|\bch(?:mod|own)\s+(?:-[a-zA-Z]*R|--recursive)|>\s*\/dev\/[shv]d|>\s*\/etc\/|\bwipefs\b|\bdrop\s+(?:database|table|schema)\b|\btruncate\b|\bfind\b[^|;&]*\s-delete\b|\bsystemctl\s+(?:stop|disable|mask|isolate)\b|\biptables\s+-[FX]\b|\bnft\s+flush\b|\bkill(?:all)?\s+-(?:9|KILL)\b|\bpkill\b|\buserdel\b|\bdocker\s+(?:rm|rmi|system\s+prune|volume\s+(?:rm|prune))\b|\bkubectl\s+delete\b|\bterraform\s+destroy\b/i;
 const MAX_OUT = 256 * 1024;
 const CONFIRM_OVER = 10;
 
@@ -28,13 +29,18 @@ let selection = new Set<Id>();
 let lastCommand = "";
 const results = new Map<Id, Result>();
 let runId: number | null = null;
+let runGen = 0;
+let ended = true;
+let stopping = false;
 let started = 0;
 let finished = 0;
 let repaint: ((done: boolean) => void) | null = null;
 
 function onEvent(ev: FleetEvent): void {
   if (ev.kind === "finished") {
-    if (runId === null && finished) return;
+    if (ended) return;
+    ended = true;
+    stopping = false;
     finished = Date.now() - started;
     runId = null;
     const bad = [...results.values()].filter((r) => r.state !== "ok").length;
@@ -283,14 +289,14 @@ export function fleetPage(): Page {
         if (!command || !selection.size || runId !== null) return;
         const targets = hosts.get().filter((x) => selection.has(x.id));
         const risky = DANGER.test(command);
-        if (risky || targets.length > CONFIRM_OVER) {
+        const shown = new Set(visibleHosts().map((x) => x.id));
+        const hidden = targets.filter((x) => !shown.has(x.id));
+        if (risky || hidden.length || targets.length > CONFIRM_OVER) {
+          const names = (list: typeof targets) => `${list.slice(0, 6).map((x) => x.label).join(", ")}${list.length > 6 ? ` and ${list.length - 6} more` : ""}`;
           const ok = await confirmBox(
-            risky ? "Destructive command" : "Run on many hosts",
-            `${risky ? "This command looks destructive. " : ""}It will run on ${targets.length} hosts at once: ${targets
-              .slice(0, 6)
-              .map((x) => x.label)
-              .join(", ")}${targets.length > 6 ? ` and ${targets.length - 6} more` : ""}.`,
-            { confirm: `run on ${targets.length}`, danger: risky },
+            risky ? "Destructive command" : hidden.length ? "Includes hidden hosts" : "Run on many hosts",
+            `${risky ? "This command looks destructive. " : ""}It will run on ${targets.length} host${targets.length === 1 ? "" : "s"} at once: ${names(targets)}.${hidden.length ? ` ${hidden.length} of them are selected but hidden by the current filter: ${names(hidden)}.` : ""}`,
+            { confirm: `run on ${targets.length}`, danger: risky || hidden.length > 0 },
           );
           if (!ok) return;
         }
@@ -298,21 +304,32 @@ export function fleetPage(): Page {
         finished = 0;
         results.clear();
         for (const x of targets) results.set(x.id, { host: x.id, label: x.label, state: "queued", status: null, ms: 0, out: "", truncated: false, error: null });
+        const gen = ++runGen;
         const feed = new Channel<FleetEvent>();
-        feed.onmessage = onEvent;
+        feed.onmessage = (ev) => {
+          if (gen === runGen) onEvent(ev);
+        };
         started = Date.now();
+        ended = false;
+        stopping = false;
+        runBtn.hidden = true;
+        cancelBtn.hidden = false;
+        cancelBtn.disabled = false;
+        ticker = setInterval(later, 500);
         try {
-          runId = await api.fleetRun(
+          const id = await api.fleetRun(
             targets.map((x) => x.id),
             command,
             Number(timeout.value),
             feed,
           );
-          runBtn.hidden = true;
-          cancelBtn.hidden = false;
-          ticker = setInterval(later, 500);
+          if (gen === runGen && !ended) runId = id;
         } catch (e) {
-          runId = null;
+          if (gen === runGen) {
+            runGen++;
+            ended = true;
+            runId = null;
+          }
           fail(e, "Fleet run");
         }
         renderHosts();
@@ -320,14 +337,15 @@ export function fleetPage(): Page {
       };
 
       const cancel = async () => {
-        if (runId === null) return;
-        const id = runId;
-        await api.fleetCancel(id).catch(() => undefined);
-        for (const r of results.values()) if (r.state === "running" || r.state === "queued") {
-          r.state = "error";
-          r.error = "cancelled";
-        }
-        onEvent({ kind: "finished" });
+        if (runId === null || stopping) return;
+        stopping = true;
+        cancelBtn.disabled = true;
+        repaint?.(false);
+        await api.fleetCancel(runId).catch((e) => {
+          stopping = false;
+          cancelBtn.disabled = false;
+          fail(e, "Cancel");
+        });
       };
 
       search.addEventListener("input", () => {

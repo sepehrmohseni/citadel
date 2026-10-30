@@ -177,6 +177,30 @@ try {
     await s.app.waitFor("document.querySelectorAll('.term-pane').length === 2 && !!document.querySelector('.split-col')", 5000, "split down");
   });
 
+  await check("broadcast forwards real keystrokes to every pane in the group", async () => {
+    const [a, b] = await terms(s.app);
+    await promptIn(s.app, a);
+    await promptIn(s.app, b);
+    const join = async (i) => {
+      await s.app.eval(`(document.querySelectorAll('.term-bar button[title^="Broadcast input"]')[${i}].click(), true)`);
+      await pause(200);
+      if (await s.app.eval("!!document.querySelector('.scrim.in')")) await s.app.clickText(".modal-actions button", "Join broadcast");
+      await pause(200);
+    };
+    await join(0);
+    await join(1);
+    s.focus();
+    await focusPane(s.app, a);
+    await pause(150);
+    s.keys(..."echo bcast-".split("").map((c) => (c === " " ? "space" : c === "-" ? "minus" : c)));
+    s.keys("dollar", "parenleft", "parenleft", "6", "asterisk", "7", "parenright", "parenright", "Return");
+    for (const k of [a, b]) {
+      await s.app.waitFor(`window.__citadel.text(${JSON.stringify(k)}).includes("bcast-42")`, 6000, `broadcast output in ${k}`);
+    }
+    await s.app.eval(`(document.querySelectorAll('.term-bar button[title^="Broadcast input"]').forEach((b) => b.click()), true)`);
+    await pause(200);
+  });
+
   await check("a new server port is detected and forwarded end to end", async () => {
     const port = 18000 + Math.floor(Math.random() * 1500);
     await focusPane(s.app, first);

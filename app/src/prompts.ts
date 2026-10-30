@@ -76,7 +76,7 @@ function interactive(ev: Extract<PromptEvent, { kind: "interactive" }>): void {
     for (const f of fields) f.value = "";
   };
   const m = modal({
-    title: `Authenticate ${ev.user}@${ev.host}`,
+    title: ev.from_server ? `${ev.host} asks` : `Authenticate ${ev.user}@${ev.host}`,
     onClose: () => {
       if (!answered) reply({ kind: "cancel" });
     },
@@ -89,7 +89,10 @@ function interactive(ev: Extract<PromptEvent, { kind: "interactive" }>): void {
           m.el.querySelector<HTMLButtonElement>(".modal-actions .primary")?.click();
         },
       },
-      ev.name ? h("strong", null, ev.name) : null,
+      ev.from_server
+        ? h("p", { class: "server-ask" }, `This request comes from the server ${ev.host}, not from Citadel. Never type your local key passphrase or vault password here.`)
+        : null,
+      ev.name ? h("strong", null, ev.from_server ? `server says: ${ev.name}` : ev.name) : null,
       ev.instructions ? h("p", { class: "muted" }, ev.instructions) : null,
       ev.prompts.map((p, i) => field(p.text.trim() || `Response ${i + 1}`, fields[i] ?? input())),
       h("button", { type: "submit", hidden: true }),

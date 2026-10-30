@@ -667,6 +667,15 @@ export function filesTab(host: Id): Tab {
       toast("Names cannot be empty or contain '/'", "warn");
       return;
     }
+    const clash = entries.find((x) => x.name === name);
+    if (clash) {
+      const ok = await confirmBox(
+        "Replace existing",
+        `"${name}" already exists in this folder. Renaming "${e.name}" will replace it${clash.is_dir ? "" : " and its contents are lost"}.`,
+        { danger: true, confirm: "Replace" },
+      );
+      if (!ok) return;
+    }
     try {
       await api.sftpRename(host, pathOf(e), join(cwd, name));
       await reload(name);
@@ -881,9 +890,14 @@ export function filesTab(host: Id): Tab {
       return;
     }
     if (disposed) return;
-    let saved = text;
+    const crlf = text.includes("\r\n");
     const area = h("textarea", { class: "input fp-editor", spellcheck: false, wrap: "off", "aria-label": `Editing ${path}` }) as HTMLTextAreaElement;
     area.value = text;
+    let saved = area.value;
+    const dir = path.slice(0, path.lastIndexOf("/")) || "/";
+    const leaf = basename(path);
+    const remoteState = async () => (await api.sftpList(host, dir)).find((x) => x.name === leaf);
+    let opened = await remoteState().catch(() => undefined);
     const pos = h("span", { class: "fp-pos mono" });
     const dirty = h("span", { class: "fp-dirty", title: "Unsaved changes", hidden: true });
     const saveBtn = btn("Save", { icon: "check", primary: true, disabled: true });
@@ -917,8 +931,18 @@ export function filesTab(host: Id): Tab {
       card.classList.add("busy");
       const content = area.value;
       try {
-        await api.sftpWrite(host, path, content);
+        const now = await remoteState().catch(() => undefined);
+        if (opened && now && (now.mtime !== opened.mtime || now.size !== opened.size)) {
+          const ok = await confirmBox(
+            "File changed on the server",
+            `${e.name} was modified on ${label} after you opened it. Saving replaces those changes.`,
+            { danger: true, confirm: "Overwrite" },
+          );
+          if (!ok) return;
+        }
+        await api.sftpWrite(host, path, crlf ? content.replace(/\r?\n/g, "\r\n") : content);
         saved = content;
+        opened = await remoteState().catch(() => undefined);
         toast("Saved atomically", "ok", 1800);
         void reload(e.name);
       } catch (err) {

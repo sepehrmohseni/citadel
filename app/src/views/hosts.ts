@@ -40,6 +40,7 @@ function glyph(s: LinkState | undefined): HTMLElement {
   if (!s) return h("span", { class: "state-glyph", title: "not connected" }, "○");
   if (s.state === "up") return h("span", { class: "state-glyph up", title: "connected" }, "●");
   if (s.state === "backoff") return h("span", { class: "state-glyph healing", title: `reconnecting: ${s.error}` }, "◐");
+  if (s.state === "failed") return h("span", { class: "state-glyph failed", title: `failed: ${s.error}` }, "✕");
   if (s.state === "connecting") return h("span", { class: "state-glyph healing", title: "connecting" }, "◐");
   return h("span", { class: "state-glyph" }, "○");
 }

@@ -1578,6 +1578,19 @@ select.input {
   color: var(--ok);
 }
 
+.server-ask {
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  background: var(--warn-soft);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.state-glyph.failed {
+  color: var(--danger);
+}
+
 .state-glyph.healing {
   color: var(--warn);
   animation: blink 1s steps(2, start) infinite;

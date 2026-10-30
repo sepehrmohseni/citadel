@@ -55,7 +55,9 @@ export async function restoreSession(): Promise<number> {
   }
   const want = listTabs()[s.active];
   if (want) focusTab(want.key);
-  if (n) toast(`Reopened ${n} tab${n === 1 ? "" : "s"} from the last session`, "info", 3000);
-  save();
+  if (n) {
+    toast(`Reopened ${n} tab${n === 1 ? "" : "s"} from the last session`, "info", 3000);
+    save();
+  }
   return n;
 }

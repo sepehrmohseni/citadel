@@ -169,6 +169,7 @@ function linkTone(host: Id): Tone {
   const s = links.get().get(host);
   if (!s) return "idle";
   if (s.state === "up") return "ok";
+  if (s.state === "failed") return "err";
   if (s.state === "connecting" || s.state === "backoff") return "warn";
   return "idle";
 }
@@ -420,7 +421,13 @@ export function openTunnelForm(existing?: Tunnel, presetHost?: Id): void {
           }
           const host = hostById(hostSel.value);
           const name = label.value.trim() || `${host?.label ?? "tunnel"} :${bp === 0 ? "auto" : bp}`;
-          const saved = await api.tunnelSave({ id: existing?.id ?? null, label: name, host: hostSel.value, forward, autostart });
+          let saved: Awaited<ReturnType<typeof api.tunnelSave>>;
+          try {
+            saved = await api.tunnelSave({ id: existing?.id ?? null, label: name, host: hostSel.value, forward, autostart });
+          } catch (e) {
+            await refreshTunnels().catch(() => undefined);
+            throw e;
+          }
           patchTunnel(saved);
           if (startNow && !saved.running) {
             try {

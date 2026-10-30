@@ -3,7 +3,7 @@ import { fuzzy, h, icon, kbd } from "./dom";
 import { focusTab, go, listTabs, openFiles, openTerminal } from "./shell";
 import { hosts, refreshHosts, snippets } from "./store";
 import { parseSsh } from "./target";
-import { activeTerminalKey, sendText } from "./terminal";
+import { visibleTerminal, sendText } from "./terminal";
 import { fail, toast } from "./ui";
 import { hostForm } from "./views/hosts";
 import { openSettings } from "./views/settings";
@@ -57,21 +57,21 @@ function items(): Item[] {
     out.push({ group: "Hosts", title: x.label, hint: addr, icon: "terminal", keywords: `${addr} ${x.tags.join(" ")} ${x.workspace ?? ""} ssh connect`, run: () => openTerminal(x.id) });
     out.push({ group: "Files", title: `${x.label} files`, hint: addr, icon: "folder", keywords: `${addr} sftp files browse`, run: () => openFiles(x.id) });
   }
-  const term = activeTerminalKey();
+  const term = visibleTerminal();
   for (const s of snippets.get()) {
     out.push({
       group: "Snippets",
       title: s.label,
-      hint: s.body.split("\n")[0]?.slice(0, 60),
+      hint: term ? `runs on ${term.label}: ${s.body.split("\n")[0]?.slice(0, 48) ?? ""}` : s.body.split("\n")[0]?.slice(0, 60),
       icon: "snippet",
       keywords: s.body,
       run: () => {
         if (!term) {
-          toast("Open a terminal first", "warn");
+          toast("Show the terminal you want the snippet to run in, then try again", "warn");
           return;
         }
         const body = s.body.replace(/\r?\n/g, "\r");
-        sendText(term, body.endsWith("\r") ? body : `${body}\r`);
+        sendText(term.key, body.endsWith("\r") ? body : `${body}\r`);
       },
     });
   }

@@ -153,7 +153,9 @@ export function focusTab(key: string): void {
   t.el.hidden = false;
   renderRail();
   renderTabs();
-  requestAnimationFrame(() => t.onShow?.());
+  requestAnimationFrame(() => {
+    if (activeTab === key) t.onShow?.();
+  });
 }
 
 export function closeTab(key: string): void {

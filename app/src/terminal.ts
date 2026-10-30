@@ -80,6 +80,7 @@ interface Recording {
   rows: number;
   events: string[];
   decoder: TextDecoder;
+  bytes: number;
 }
 
 export interface Pane {
@@ -109,9 +110,14 @@ export interface Pane {
   text(): string;
   renderer(): string;
   connected(): boolean;
+  pasteText(text: string): void;
 }
 
 const live = new Map<string, Pane>();
+const REPORT =
+  /^(?:\x1b\[\d+;\d+R|\x1b\[[?>=]?[\d;]*c|\x1b\[[IO]|\x1b\[M[\s\S]{3}|\x1b\[<\d+;\d+;\d+[Mm]|\x1b\[\??\d*n|\x1b\[\??[\d;]*\$y|\x1b\[\d+(?:;\d+)*t|\x1b\][\s\S]*?(?:\x07|\x1b\\)|\x1bP[\s\S]*?\x1b\\)+$/;
+const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g;
+const REC_LIMIT = 32 << 20;
 const ANDROID = /Android/i.test(navigator.userAgent);
 let keepQueued = false;
 let keepLast = "";
@@ -178,11 +184,18 @@ export function sendText(key: string, text: string): void {
   live.get(key)?.send(text);
 }
 
-export function activeTerminalKey(): string | null {
+export function lastTerminal(): { key: string; label: string } | null {
   const focused = paneOf(document.activeElement);
-  if (focused) return focused.key;
-  if (lastPaneKey && live.has(lastPaneKey)) return lastPaneKey;
-  return null;
+  const pick = focused ?? (lastPaneKey ? live.get(lastPaneKey) : undefined);
+  return pick ? { key: pick.key, label: pick.label } : null;
+}
+
+export function visibleTerminal(): { key: string; label: string } | null {
+  const tab = currentTab();
+  if (!tab) return null;
+  const focused = paneOf(document.activeElement);
+  const pick = focused && tab.el.contains(focused.el) ? focused : lastPaneKey ? live.get(lastPaneKey) : undefined;
+  return pick && tab.el.contains(pick.el) ? { key: pick.key, label: pick.label } : null;
 }
 
 function paneOf(node: Element | null): Pane | undefined {
@@ -214,6 +227,11 @@ function createPane(host: Id, changed: () => void): Pane {
   const p: Prefs | null = prefs.get();
   const term = new Terminal({
     allowProposedApi: true,
+    linkHandler: {
+      activate: (ev, uri) => {
+        if (ev.ctrlKey || ev.metaKey) void copyText(uri, "Link copied to clipboard");
+      },
+    },
     allowTransparency: false,
     cursorBlink: p?.cursor_blink ?? true,
     cursorStyle: (p?.cursor_style as "block" | "bar" | "underline") ?? "bar",
@@ -265,7 +283,7 @@ function createPane(host: Id, changed: () => void): Pane {
   };
   bcastListeners.add(renderBcast);
   const startRec = () => {
-    rec = { start: performance.now(), cols: term.cols, rows: term.rows, events: [], decoder: new TextDecoder() };
+    rec = { start: performance.now(), cols: term.cols, rows: term.rows, events: [], bytes: 0, decoder: new TextDecoder() };
     recEl.hidden = false;
     recBtn.hidden = true;
     const tick = () => {
@@ -362,7 +380,7 @@ function createPane(host: Id, changed: () => void): Pane {
   let tone: TabTone = "idle";
   let connecting = false;
   let attempt = 0;
-  let userTurn = false;
+  let pasting = false;
   let blinkTimer: ReturnType<typeof setTimeout> | undefined;
   let watchTimer: ReturnType<typeof setInterval> | undefined;
   let knownPorts: Set<number> | null = null;
@@ -482,8 +500,14 @@ function createPane(host: Id, changed: () => void): Pane {
       icon("warn", 22),
       h("strong", null, "Connection failed"),
       h("span", { class: "muted err-detail" }, errText(e)),
-      h("div", { class: "row" }, ...fixes, btn("Retry", { primary: fixes.length === 0, icon: "refresh", onClick: () => void connect() })),
+      h("div", { class: "row" }, ...fixes, btn("Retry", { primary: fixes.length === 0, icon: "refresh", onClick: () => void retryLink() })),
     ]);
+  };
+
+  const mayFocus = () => {
+    if (document.querySelector(".scrim.in")) return false;
+    const active = document.activeElement;
+    return lastPaneKey === key || !active || active === document.body || paneOf(active)?.key === key;
   };
 
   const linkText = () => {
@@ -491,7 +515,26 @@ function createPane(host: Id, changed: () => void): Pane {
     if (!s) return "starting a new connection";
     if (s.state === "connecting") return s.attempt > 1 ? `reconnect attempt ${s.attempt} in progress` : "connecting";
     if (s.state === "backoff") return `${s.error} · next attempt in ${Math.max(1, Math.ceil(s.retry_ms / 1000))}s`;
+    if (s.state === "failed") return `${s.error} · not retrying on its own, tap retry now`;
     return s.state === "up" ? "connected, opening the shell" : s.state;
+  };
+
+  const retryLink = async () => {
+    await api.linkReconnect(host).catch(() => undefined);
+    await connect();
+  };
+
+  const linkFailed = () => links.get().get(host)?.state === "failed";
+  let waitTitle: HTMLElement | null = null;
+  let waitLede: HTMLElement | null = null;
+  const paintWait = () => {
+    const failedNow = linkFailed();
+    if (waitTitle) waitTitle.textContent = failedNow ? `Can't connect to ${label}` : `Waiting for ${label}`;
+    if (waitLede)
+      waitLede.textContent = failedNow
+        ? "Citadel stopped retrying because this needs you: check the host key, the credentials or the legacy setting, then retry."
+        : "The server is not answering. Citadel keeps trying and opens the shell when it is back.";
+    if (waitDetail) waitDetail.textContent = linkText();
   };
 
   const stopWaiting = () => {
@@ -504,11 +547,14 @@ function createPane(host: Id, changed: () => void): Pane {
   const waitForLink = (e: unknown) => {
     if (waiting) return;
     waiting = true;
-    waitDetail = h("span", { class: "muted err-detail" }, linkText());
+    waitDetail = h("span", { class: "muted err-detail" });
+    waitTitle = h("strong", null);
+    waitLede = h("span", { class: "muted" });
+    paintWait();
     showOverlay([
       h("div", { class: "spinner" }),
-      h("strong", null, `Waiting for ${label}`),
-      h("span", { class: "muted" }, "The server is not answering. Citadel keeps trying and opens the shell when it is back."),
+      waitTitle,
+      waitLede,
       waitDetail,
       h(
         "div",
@@ -516,10 +562,7 @@ function createPane(host: Id, changed: () => void): Pane {
         btn("retry now", {
           primary: true,
           icon: "refresh",
-          onClick: () => {
-            void api.linkReconnect(host).catch(() => undefined);
-            void connect();
-          },
+          onClick: () => void retryLink(),
         }),
         btn("stop", {
           onClick: () => {
@@ -559,30 +602,49 @@ function createPane(host: Id, changed: () => void): Pane {
         processed += chunk.length;
         if (processed - acked >= ACK_STEP) ack();
       });
-      if (rec) rec.events.push(JSON.stringify([Number(((performance.now() - rec.start) / 1000).toFixed(6)), "o", rec.decoder.decode(chunk, { stream: true })]));
+      if (rec) {
+        const line = JSON.stringify([Number(((performance.now() - rec.start) / 1000).toFixed(6)), "o", rec.decoder.decode(chunk, { stream: true })]);
+        rec.events.push(line);
+        rec.bytes += line.length + 1;
+        if (rec.bytes > REC_LIMIT) {
+          toast("Recording reached 32 MiB and was stopped to protect memory.", "warn", 6000);
+          void stopRec();
+        }
+      }
     };
     const status = new Channel<PtyStatus>();
+    let closedEarly = false;
     status.onmessage = (s) => {
       if (mine !== attempt) return;
       if (s.kind === "exit") exitCode = s.code;
       else if (s.kind === "signal") term.write(`\r\n\x1b[2m[terminated by ${s.name}]\x1b[0m\r\n`);
-      else ended();
+      else {
+        if (pid === null) closedEarly = true;
+        ended();
+      }
     };
     try {
       refit();
-      const opened_ = await api.ptyOpen(host, Math.max(term.cols, 2), Math.max(term.rows, 2), data, status);
+      const cols = Math.max(term.cols, 2);
+      const rows = Math.max(term.rows, 2);
+      const opened_ = await api.ptyOpen(host, cols, rows, data, status);
       if (disposed || mine !== attempt) {
         void api.ptyClose(opened_).catch(() => undefined);
         return;
       }
+      if (closedEarly) {
+        stopWaiting();
+        return;
+      }
       pid = opened_;
+      if (term.cols !== cols || term.rows !== rows) void api.ptyResize(pid, Math.max(term.cols, 2), Math.max(term.rows, 2)).catch(() => undefined);
       ackFor = pid;
       ack();
       stopWaiting();
       hideOverlay();
       setTone("ok");
       syncKeepAlive();
-      if (visible) term.focus();
+      if (visible && mayFocus()) term.focus();
       armPortWatch();
     } catch (e) {
       if (mine !== attempt) return;
@@ -647,27 +709,31 @@ function createPane(host: Id, changed: () => void): Pane {
     } else if (e.key === "Escape") closeFind();
   });
 
-  const asUser = (fn: () => void) => {
-    userTurn = true;
+  const pasteRaw = (text: string) => {
+    pasting = true;
     try {
-      fn();
+      term.paste(text);
     } finally {
-      userTurn = false;
+      pasting = false;
     }
   };
 
-  const pasteGuard = async (text: string) => {
+  const pasteGuard = async (raw: string) => {
+    const text = raw.replace(CONTROL, "");
+    const targets = broadcast.has(key) ? [...broadcast].filter((k) => k !== key).flatMap((k) => live.get(k) ?? []) : [];
     const limit = prefs.get()?.paste_confirm_lines ?? 5;
     const lines = text.split(/\r\n|\r|\n/).length;
     if (limit > 0 && lines > limit) {
+      const where = targets.length ? `${label} and ${targets.length} more broadcast pane${targets.length === 1 ? "" : "s"} (${targets.map((t) => t.label).join(", ")})` : label;
       const ok = await confirmBox(
         "Paste multiple lines",
-        `You are about to paste ${lines} lines into ${label}. Each line may execute as a command.`,
+        `You are about to paste ${lines} lines into ${where}. Each line may execute as a command.`,
         { confirm: "Paste", danger: true },
       );
       if (!ok) return;
     }
-    asUser(() => term.paste(text));
+    pasteRaw(text);
+    for (const t of targets) t.pasteText(text);
     term.focus();
   };
 
@@ -737,7 +803,17 @@ function createPane(host: Id, changed: () => void): Pane {
   const latch = { ctrl: false, alt: false };
   const latchEls: HTMLElement[] = [];
   const applyLatch = (d: string): string => {
-    if ((!latch.ctrl && !latch.alt) || d.startsWith("\x1b")) return d;
+    if (!latch.ctrl && !latch.alt) return d;
+    const mod = 1 + (latch.alt ? 2 : 0) + (latch.ctrl ? 4 : 0);
+    const csi = /^\x1b(?:\[|O)([A-DHF])$/.exec(d);
+    const tilde = /^\x1b\[(\d+)~$/.exec(d);
+    if (csi || tilde || d.startsWith("\x1b")) {
+      latch.ctrl = latch.alt = false;
+      for (const el of latchEls) el.classList.remove("on");
+      if (csi) return `\x1b[1;${mod}${csi[1]}`;
+      if (tilde) return `\x1b[${tilde[1]};${mod}~`;
+      return d;
+    }
     let out = d;
     if (latch.ctrl && d.length === 1) {
       const c = d.toLowerCase().charCodeAt(0);
@@ -775,7 +851,7 @@ function createPane(host: Id, changed: () => void): Pane {
       else term.focus();
     } else {
       const seq = typeof out === "function" ? out() : out;
-      asUser(() => term.input(seq, true));
+      term.input(seq, true);
     }
   };
   const renderKeys = () => {
@@ -874,7 +950,7 @@ function createPane(host: Id, changed: () => void): Pane {
     const d = applyLatch(raw);
     wakeCursor();
     sendString(d);
-    if (userTurn && broadcast.has(key)) {
+    if (!pasting && broadcast.has(key) && !REPORT.test(d)) {
       for (const k of broadcast) if (k !== key) live.get(k)?.send(d);
     }
   });
@@ -903,33 +979,11 @@ function createPane(host: Id, changed: () => void): Pane {
     const chord = terminalChord(e, true);
     if (chord !== null) {
       e.preventDefault();
-      asUser(() => term.input(chord));
+      term.input(chord);
       return false;
     }
     return true;
   });
-  hostEl.addEventListener(
-    "keydown",
-    () => {
-      userTurn = true;
-      queueMicrotask(() => {
-        userTurn = false;
-      });
-    },
-    true,
-  );
-  for (const ev of ["compositionend", "input"]) {
-    hostEl.addEventListener(
-      ev,
-      () => {
-        userTurn = true;
-        queueMicrotask(() => {
-          userTurn = false;
-        });
-      },
-      true,
-    );
-  }
   hostEl.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     contextMenu(e.clientX, e.clientY, [
@@ -952,7 +1006,7 @@ function createPane(host: Id, changed: () => void): Pane {
   const ro = new ResizeObserver(() => requestAnimationFrame(refit));
   const unsubLink = links.subscribe((m) => {
     const s = m.get(host);
-    if (waiting && waitDetail) waitDetail.textContent = linkText();
+    if (waiting) paintWait();
     if (!s || pid === null) return;
     if (s.state === "backoff" || s.state === "connecting") setTone("warn");
     else if (s.state === "up" && tone !== "ok") setTone("ok");
@@ -1022,7 +1076,7 @@ function createPane(host: Id, changed: () => void): Pane {
     tone: () => tone,
     connecting: () => connecting,
     banner: (text) => {
-      const clean = text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").replace(/\n/g, "\r\n");
+      const clean = text.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, "").replace(/\n/g, "\r\n");
       term.write(`\x1b[2m${clean}\x1b[0m\r\n`);
     },
     focus: () => term.focus(),
@@ -1079,6 +1133,7 @@ function createPane(host: Id, changed: () => void): Pane {
     },
     renderer: () => (gl ? "webgl" : "dom"),
     connected: () => pid !== null,
+    pasteText: (text) => pasteRaw(text.replace(CONTROL, "")),
   };
   byEl.set(el, api_);
   live.set(key, api_);
@@ -1304,6 +1359,6 @@ bind("zoom.in", zoom(1));
 bind("zoom.out", zoom(-1));
 bind("zoom.reset", zoom(0));
 
-void events.banner((label, text) => {
-  for (const p of live.values()) if (p.label === label && p.connecting()) p.banner(text);
+void events.banner((host, text) => {
+  for (const p of live.values()) if (p.host === host && p.connecting()) p.banner(text);
 });

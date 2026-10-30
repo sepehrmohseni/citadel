@@ -161,6 +161,7 @@ export type LinkState =
   | { state: "connecting"; attempt: number }
   | { state: "up"; attempt: number; rtt_ms: number | null }
   | { state: "backoff"; attempt: number; retry_ms: number; error: string }
+  | { state: "failed"; attempt: number; error: string }
   | { state: "stopped" };
 
 export type LinkEvent = { host: Id } & LinkState;
@@ -327,7 +328,7 @@ export interface MergeReport {
 
 export interface ImportOutcome {
   report: MergeReport;
-  neutralized: { autostart: number; agent_forward: number; host_keys: number; rejected: number };
+  neutralized: { autostart: number; agent_forward: number; host_keys: number; device_only: number; rejected: number };
 }
 
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
@@ -427,6 +428,7 @@ export type PromptEvent =
       name: string;
       instructions: string;
       prompts: { text: string; echo: boolean }[];
+      from_server: boolean;
     };
 
 export type Answer = { kind: "host_key"; accept: boolean } | { kind: "interactive"; answers: string[] } | { kind: "cancel" };
@@ -540,7 +542,7 @@ export const events = {
     listen<TunnelEvent>("citadel://tunnel", (e) => fn(e.payload)),
   prompt: (fn: (e: PromptEvent) => void): Promise<UnlistenFn> =>
     listen<PromptEvent>("citadel://prompt", (e) => fn(e.payload)),
-  banner: (fn: (label: string, text: string) => void): Promise<UnlistenFn> =>
+  banner: (fn: (host: Id, text: string) => void): Promise<UnlistenFn> =>
     listen<[string, string]>("citadel://banner", (e) => fn(e.payload[0], e.payload[1])),
 };
 

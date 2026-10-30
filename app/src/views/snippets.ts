@@ -3,7 +3,7 @@ import { api, type Snippet } from "../api";
 import { clear, h, icon, kbd, modKey } from "../dom";
 import { onTabsChanged, type Page } from "../shell";
 import { refreshSnippets, snippets } from "../store";
-import { activeTerminalKey, liveTerminals, sendText } from "../terminal";
+import { lastTerminal, liveTerminals, sendText, visibleTerminal } from "../terminal";
 import { btn, confirmBox, empty, fail, field, input, modal, textarea, toast } from "../ui";
 
 function toPty(body: string): string {
@@ -58,15 +58,16 @@ function editModal(s: Snippet | null): void {
   });
 }
 
-function runActive(s: Snippet): void {
-  const key = activeTerminalKey();
-  if (!key) {
+async function runActive(s: Snippet): Promise<void> {
+  const seen = visibleTerminal();
+  const target = seen ?? lastTerminal();
+  if (!target) {
     toast("Open a terminal first", "warn");
     return;
   }
-  sendText(key, toPty(s.body));
-  const t = liveTerminals().find((x) => x.key === key);
-  toast(`Sent "${s.label}" to ${t?.title ?? "terminal"}`, "ok", 2200);
+  if (!seen && !(await confirmBox("Run snippet", `Run "${s.label}" on ${target.label}? That terminal is not on screen.`, { confirm: "Run" }))) return;
+  sendText(target.key, toPty(s.body));
+  toast(`Sent "${s.label}" to ${target.label}`, "ok", 2200);
 }
 
 function broadcastModal(s: Snippet): void {
@@ -75,7 +76,7 @@ function broadcastModal(s: Snippet): void {
     toast("No terminals are open", "warn");
     return;
   }
-  const active = activeTerminalKey();
+  const active = (visibleTerminal() ?? lastTerminal())?.key ?? null;
   const boxes = terms.map((t) => ({ t, cb: h("input", { type: "checkbox", checked: t.key === active || terms.length === 1 }) as HTMLInputElement }));
   const all = h("input", { type: "checkbox" }) as HTMLInputElement;
   const warn = h("div", { class: "alert" }, icon("warn", 15), h("span"));
@@ -150,7 +151,7 @@ function card(s: Snippet, live: number): HTMLElement {
         primary: live > 0,
         disabled: live === 0,
         title: live ? "Run in the active terminal" : "Open a terminal to run snippets",
-        onClick: () => runActive(s),
+        onClick: () => void runActive(s),
       }),
       btn("Broadcast", {
         icon: "broadcast",
