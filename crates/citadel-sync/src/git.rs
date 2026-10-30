@@ -1,8 +1,12 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, PoisonError};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use secrecy::{ExposeSecret, SecretString};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::Mutex;
@@ -13,7 +17,7 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_OUTPUT: usize = 128 << 20;
 const AUTHOR: &str = "Citadel";
 const EMAIL: &str = "citadel@localhost";
-const HARDENING: [&str; 8] = [
+const HARDENING: [&str; 16] = [
     "-c",
     "commit.gpgsign=false",
     "-c",
@@ -22,14 +26,82 @@ const HARDENING: [&str; 8] = [
     "credential.interactive=never",
     "-c",
     "core.fsmonitor=false",
+    "-c",
+    "protocol.allow=never",
+    "-c",
+    "protocol.https.allow=always",
+    "-c",
+    "protocol.ssh.allow=always",
+    "-c",
+    "protocol.file.allow=always",
 ];
+const HELPER: &str = "!f() { test \"$1\" = get && printf 'username=%s\\npassword=%s\\n' \"$CITADEL_GIT_USER\" \"$CITADEL_GIT_PASS\"; }; f";
+
+static LOCKS: LazyLock<std::sync::Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+static INDEXES: AtomicU64 = AtomicU64::new(0);
+
+fn dir_lock(dir: &Path) -> Arc<Mutex<()>> {
+    LOCKS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(dir.to_owned())
+        .or_default()
+        .clone()
+}
+
+struct Creds {
+    user: SecretString,
+    pass: SecretString,
+}
+
+fn unescape(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        if bytes[i] == b'%'
+            && let (Some(h), Some(l)) = (
+                bytes.get(i + 1).copied().and_then(hex),
+                bytes.get(i + 2).copied().and_then(hex),
+            )
+        {
+            out.push(u8::try_from(h * 16 + l).unwrap_or(b'?'));
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn split_remote(remote: &str) -> (String, Option<Creds>) {
+    match url::Url::parse(remote) {
+        Ok(mut u)
+            if matches!(u.scheme(), "http" | "https")
+                && (!u.username().is_empty() || u.password().is_some()) =>
+        {
+            let creds = Creds {
+                user: SecretString::from(unescape(u.username())),
+                pass: SecretString::from(u.password().map(unescape).unwrap_or_default()),
+            };
+            let _ = u.set_password(None);
+            let _ = u.set_username("");
+            (u.to_string(), Some(creds))
+        }
+        _ => (remote.to_owned(), None),
+    }
+}
 
 pub(crate) struct Git {
     remote: String,
+    creds: Option<Creds>,
     branch: String,
     path: String,
     dir: PathBuf,
-    lock: Mutex<()>,
+    lock: Arc<Mutex<()>>,
 }
 
 struct Run {
@@ -38,8 +110,12 @@ struct Run {
     stderr: String,
 }
 
-fn fnv1a(s: &str) -> u64 {
-    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+pub(crate) fn fnv1a(s: &str) -> u64 {
+    fnv1a_bytes(s.as_bytes())
+}
+
+pub(crate) fn fnv1a_bytes(s: &[u8]) -> u64 {
+    s.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     })
 }
@@ -82,12 +158,19 @@ impl Git {
                 "invalid path in repository {path:?}"
             )));
         }
+        let (url, creds) = split_remote(remote);
+        let dir = cache.join(format!("git-{:016x}", fnv1a(&url)));
+        let legacy = cache.join(format!("git-{:016x}", fnv1a(remote)));
+        if legacy != dir && legacy.is_dir() {
+            let _ = std::fs::remove_dir_all(&legacy);
+        }
         Ok(Self {
-            remote: remote.to_owned(),
+            remote: url,
+            creds,
             branch: branch.to_owned(),
             path: path.to_owned(),
-            dir: cache.join(format!("git-{:016x}", fnv1a(remote))),
-            lock: Mutex::new(()),
+            lock: dir_lock(&dir),
+            dir,
         })
     }
 
@@ -102,6 +185,7 @@ impl Git {
             .arg(&self.dir)
             .args(args)
             .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_PROTOCOL_FROM_USER", "0")
             .env("GIT_AUTHOR_NAME", AUTHOR)
             .env("GIT_AUTHOR_EMAIL", EMAIL)
             .env("GIT_COMMITTER_NAME", AUTHOR)
@@ -120,6 +204,15 @@ impl Git {
             Some(i) => cmd.env("GIT_INDEX_FILE", i),
             None => cmd.env_remove("GIT_INDEX_FILE"),
         };
+        if let Some(c) = &self.creds {
+            cmd.env("GIT_CONFIG_COUNT", "2")
+                .env("GIT_CONFIG_KEY_0", "credential.helper")
+                .env("GIT_CONFIG_VALUE_0", "")
+                .env("GIT_CONFIG_KEY_1", "credential.helper")
+                .env("GIT_CONFIG_VALUE_1", HELPER)
+                .env("CITADEL_GIT_USER", c.user.expose_secret())
+                .env("CITADEL_GIT_PASS", c.pass.expose_secret());
+        }
         let mut child = cmd
             .spawn()
             .map_err(|e| SyncError::Git(format!("cannot run git: {e}")))?;
@@ -189,9 +282,21 @@ impl Git {
 
     async fn ensure(&self) -> Result<()> {
         if self.dir.join("HEAD").is_file() {
+            self.must(&["remote", "set-url", "origin", &self.remote], None, None)
+                .await?;
             return Ok(());
         }
         tokio::fs::create_dir_all(&self.dir).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for d in [Some(self.dir.as_path()), self.dir.parent()]
+                .into_iter()
+                .flatten()
+            {
+                let _ = std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700));
+            }
+        }
         let init = Command::new("git")
             .args(HARDENING)
             .args(["init", "--bare", "-q"])
@@ -288,7 +393,11 @@ impl Git {
             },
         };
         self.ensure().await?;
-        let index = self.dir.join("citadel-index");
+        let index = self.dir.join(format!(
+            "citadel-index-{}-{}",
+            std::process::id(),
+            INDEXES.fetch_add(1, Ordering::Relaxed)
+        ));
         let _ = tokio::fs::remove_file(&index).await;
         match &base {
             Some(b) => self.must(&["read-tree", b], None, Some(&index)).await?,
@@ -359,14 +468,26 @@ impl Remote for Git {
     }
 
     fn describe(&self) -> String {
-        let shown = match url::Url::parse(&self.remote) {
-            Ok(mut u) if u.password().is_some() || !u.username().is_empty() => {
-                let _ = u.set_password(None);
-                let _ = u.set_username("");
-                u.to_string()
-            }
-            _ => self.remote.clone(),
-        };
-        format!("git {shown} ({}:{})", self.branch, self.path)
+        format!("git {} ({}:{})", self.remote, self.branch, self.path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credentials_never_stay_in_the_remote_url() {
+        let (url, creds) = split_remote("https://ops:s3cr%40t@git.example/vault.git");
+        assert_eq!(url, "https://git.example/vault.git");
+        let c = creds.expect("credentials");
+        assert_eq!(c.user.expose_secret(), "ops");
+        assert_eq!(c.pass.expose_secret(), "s3cr@t");
+        let (url, creds) = split_remote("git@github.com:me/vault.git");
+        assert_eq!(url, "git@github.com:me/vault.git");
+        assert!(creds.is_none());
+        let (url, creds) = split_remote("ssh://git@host/vault.git");
+        assert_eq!(url, "ssh://git@host/vault.git");
+        assert!(creds.is_none());
     }
 }

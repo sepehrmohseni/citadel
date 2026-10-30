@@ -21,8 +21,8 @@ impl KdfParams {
         t: 3,
         p: 4,
     };
-    pub const MAX_M_KIB: u32 = 1024 * 1024;
-    pub const MAX_T: u32 = 16;
+    pub const MAX_M_KIB: u32 = 256 * 1024;
+    pub const MAX_T: u32 = 10;
     pub const MAX_P: u32 = 16;
 
     pub fn validate(self) -> Result<Self> {

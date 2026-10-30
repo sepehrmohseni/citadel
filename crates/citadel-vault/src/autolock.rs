@@ -37,6 +37,7 @@ async fn watchdog(vault: Arc<Vault>, mut idle_rx: watch::Receiver<Option<Duratio
     let mut state_rx = vault.subscribe();
     loop {
         let limit = *idle_rx.borrow_and_update();
+        vault.set_idle_limit(limit);
         state_rx.mark_unchanged();
         let wait = match (limit, vault.idle_for()) {
             (Some(limit), Some(elapsed)) if elapsed >= limit => {
@@ -56,7 +57,7 @@ async fn watchdog(vault: Arc<Vault>, mut idle_rx: watch::Receiver<Option<Duratio
 
 async fn nap(wait: Option<Duration>) {
     match wait {
-        Some(d) => tokio::time::sleep(d).await,
+        Some(d) => tokio::time::sleep(d.min(Duration::from_secs(30))).await,
         None => std::future::pending().await,
     }
 }

@@ -14,6 +14,10 @@ pub(crate) struct WebDav {
     password: SecretString,
 }
 
+fn content_tag(body: &[u8]) -> String {
+    format!("fnv:{:016x}", crate::git::fnv1a_bytes(body))
+}
+
 impl WebDav {
     pub fn new(url: &str, user: &str, password: &SecretString) -> Result<Self> {
         let url = Url::parse(url).map_err(|e| SyncError::Config(format!("url: {e}")))?;
@@ -46,6 +50,13 @@ impl WebDav {
         (parent.path() != "/").then_some(parent)
     }
 
+    async fn unchanged_since(&self, expected: &str) -> Result<()> {
+        match self.get().await? {
+            Some((_, tag)) if tag == expected => Ok(()),
+            _ => Err(SyncError::Conflict),
+        }
+    }
+
     async fn get(&self) -> Result<Fetched> {
         let resp = self.request(Method::GET, self.url.clone()).send().await?;
         if resp.status() == StatusCode::NOT_FOUND {
@@ -54,8 +65,10 @@ impl WebDav {
         if !resp.status().is_success() {
             return Err(failure(resp).await);
         }
-        let tag = http::etag(resp.headers()).unwrap_or_default();
-        Ok(Some((http::body(resp, http::MAX_BODY).await?, tag)))
+        let etag = http::etag(resp.headers());
+        let body = http::body(resp, http::MAX_BODY).await?;
+        let tag = etag.unwrap_or_else(|| content_tag(&body));
+        Ok(Some((body, tag)))
     }
 
     async fn attempt(&self, blob: &[u8], expected: Option<&str>) -> Result<reqwest::Response> {
@@ -64,6 +77,10 @@ impl WebDav {
             .body(blob.to_vec());
         let req = match expected {
             Some("") => req,
+            Some(tag) if tag.starts_with("fnv:") => {
+                self.unchanged_since(tag).await?;
+                req
+            }
             Some(tag) => req.header(IF_MATCH, tag),
             None => req.header(IF_NONE_MATCH, "*"),
         };
@@ -92,7 +109,7 @@ impl WebDav {
         if let Some(tag) = http::etag(resp.headers()) {
             return Ok(tag);
         }
-        Ok(self.get().await?.map(|(_, tag)| tag).unwrap_or_default())
+        Ok(content_tag(blob))
     }
 }
 

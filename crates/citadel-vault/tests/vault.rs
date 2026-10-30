@@ -317,9 +317,14 @@ fn password_change_propagates_through_sync() -> Res {
     a.lock();
     assert!(matches!(a.unlock(&pw("old")), Err(VaultError::BadPassword)));
     a.unlock(&pw("new"))?;
-    let got = b.absorb(&a.sync_blob()?, None)?;
-    assert!(got.header_adopted && !got.rekeyed);
+    assert!(matches!(
+        b.absorb(&a.sync_blob()?, None),
+        Err(VaultError::ForeignKey)
+    ));
+    let got = b.absorb(&a.sync_blob()?, Some(&pw("new")))?;
+    assert!(got.header_adopted && got.rekeyed);
     b.lock();
+    assert!(matches!(b.unlock(&pw("old")), Err(VaultError::BadPassword)));
     b.unlock(&pw("new"))?;
     Ok(())
 }
@@ -530,7 +535,7 @@ fn now_ms() -> u64 {
 fn clock_is_seeded_from_stored_stamps_after_reopen() -> Res {
     let dir = TempDir::new()?;
     let path = dir.path().join("v.redb");
-    let far = now_ms() + 10 * 86_400_000;
+    let far = now_ms() + 12 * 3_600_000;
     let id = {
         let v = fresh(&dir, "v.redb", "pw")?;
         let mut h = host("skewed")?;
@@ -545,6 +550,37 @@ fn clock_is_seeded_from_stored_stamps_after_reopen() -> Res {
     v.put(&mut h)?;
     let stamped = v.get::<HostProfile>(id)?.ok_or("missing")?.updated_ms;
     assert!(stamped > far, "edit stamped {stamped} not after {far}");
+    Ok(())
+}
+
+#[test]
+fn equal_stamps_converge_on_both_devices() -> Res {
+    let dir = TempDir::new()?;
+    let a = fresh(&dir, "a.redb", "pw")?;
+    let b = fresh(&dir, "b.redb", "pw")?;
+    let mut x = host("left")?;
+    x.updated_ms = now_ms();
+    let mut y = x.clone();
+    y.label = "right".into();
+    a.merge(vec![Entry::Host(x.clone())])?;
+    b.merge(vec![Entry::Host(y.clone())])?;
+    a.merge(vec![Entry::Host(y)])?;
+    b.merge(vec![Entry::Host(x)])?;
+    let la = a.list::<HostProfile>()?[0].label.clone();
+    let lb = b.list::<HostProfile>()?[0].label.clone();
+    assert_eq!(la, lb);
+    Ok(())
+}
+
+#[test]
+fn stamps_from_the_far_future_are_clamped() -> Res {
+    let dir = TempDir::new()?;
+    let v = fresh(&dir, "v.redb", "pw")?;
+    let mut h = host("time-traveller")?;
+    h.updated_ms = now_ms() + 10 * 86_400_000;
+    v.merge(vec![Entry::Host(h.clone())])?;
+    let stored = v.get::<HostProfile>(h.id)?.ok_or("missing")?.updated_ms;
+    assert!(stored <= now_ms() + 86_400_000 + 60_000, "stored {stored}");
     Ok(())
 }
 

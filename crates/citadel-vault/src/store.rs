@@ -34,6 +34,7 @@ const BACKUP_PREFIX: &str = "citadel-";
 const BACKUP_EXT: &str = ".ctdl";
 const CACHE_BYTES: usize = 4 << 20;
 const AAD_DOMAIN: &[u8] = b"citadel.record.v1";
+const FUTURE_SKEW_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -97,7 +98,7 @@ pub fn list_backups(dir: &Path) -> Vec<Backup> {
             Backup::parse(e.path(), bytes)
         })
         .collect();
-    out.sort_by_key(|b| std::cmp::Reverse(b.created_ms));
+    out.sort_by_key(|b| std::cmp::Reverse((b.generation, b.created_ms)));
     out
 }
 
@@ -111,6 +112,20 @@ pub struct Absorbed {
 struct Session {
     cipher: XChaCha20Poly1305,
     last_use: Instant,
+    last_wall: u64,
+}
+
+fn mark(s: &mut Session) {
+    s.last_use = Instant::now();
+    s.last_wall = now_ms();
+}
+
+fn not_from_the_future(mut e: Entry) -> Entry {
+    let horizon = now_ms().saturating_add(FUTURE_SKEW_MS);
+    if e.stamp() > horizon {
+        e.set_stamp(horizon);
+    }
+    e
 }
 
 pub struct Vault {
@@ -119,6 +134,7 @@ pub struct Vault {
     session: Mutex<Option<Session>>,
     state: watch::Sender<LockState>,
     clock: AtomicU64,
+    idle_limit_ms: AtomicU64,
 }
 
 fn table(name: &'static str) -> Table {
@@ -170,7 +186,7 @@ fn open_record<R: Record>(cipher: &XChaCha20Poly1305, key: [u8; 16], blob: &[u8]
 fn scan<R: Record>(
     txn: &ReadTransaction,
     cipher: &XChaCha20Poly1305,
-    skipped: &mut usize,
+    skipped: &mut Vec<Id>,
 ) -> Result<Vec<R>> {
     let Some(t) = open_ro(txn, table(R::TABLE))? else {
         return Ok(Vec::new());
@@ -180,13 +196,16 @@ fn scan<R: Record>(
         let (k, v) = row?;
         match open_record::<R>(cipher, k.value(), v.value()) {
             Ok(rec) => out.push(rec),
+            Err(VaultError::Tampered | VaultError::Truncated) if R::TABLE == KnownHost::TABLE => {
+                return Err(VaultError::Tampered);
+            }
             Err(
                 VaultError::Decode(_)
                 | VaultError::Tampered
                 | VaultError::Truncated
                 | VaultError::BadId,
             ) => {
-                *skipped += 1;
+                skipped.push(Id::from_bytes(k.value()));
             }
             Err(e) => return Err(e),
         }
@@ -198,7 +217,7 @@ fn gather<R: Record>(
     txn: &ReadTransaction,
     cipher: &XChaCha20Poly1305,
     out: &mut BTreeMap<Id, Entry>,
-    skipped: &mut usize,
+    skipped: &mut Vec<Id>,
 ) -> Result<()> {
     for rec in scan::<R>(txn, cipher, skipped)? {
         out.insert(rec.id(), rec.into_entry());
@@ -277,6 +296,17 @@ fn write_header(txn: &WriteTransaction, header: &KeyHeader) -> Result<()> {
     Ok(())
 }
 
+fn wins_tie(local: &Entry, incoming: &Entry) -> bool {
+    match (local.is_tombstone(), incoming.is_tombstone()) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => match (codec::encode(local), codec::encode(incoming)) {
+            (Ok(a), Ok(b)) => *b > *a,
+            _ => false,
+        },
+    }
+}
+
 fn classify(local: Option<&Entry>, incoming: &Entry, report: &mut MergeReport) -> bool {
     match local {
         None if incoming.is_tombstone() => true,
@@ -284,7 +314,10 @@ fn classify(local: Option<&Entry>, incoming: &Entry, report: &mut MergeReport) -
             report.added += 1;
             true
         }
-        Some(l) if incoming.stamp() > l.stamp() => {
+        Some(l)
+            if incoming.stamp() > l.stamp()
+                || (incoming.stamp() == l.stamp() && wins_tie(l, incoming)) =>
+        {
             match (l.is_tombstone(), incoming.is_tombstone()) {
                 (false, true) => report.deleted += 1,
                 (true, false) => report.added += 1,
@@ -320,6 +353,7 @@ impl Vault {
             session: Mutex::new(None),
             state: watch::Sender::new(LockState::Uninitialized),
             clock: AtomicU64::new(0),
+            idle_limit_ms: AtomicU64::new(0),
         };
         match vault.read_format()? {
             Some(f) if f > STORE_FORMAT => return Err(VaultError::NewerFormat(f)),
@@ -339,11 +373,11 @@ impl Vault {
 
     pub fn health(&self) -> Result<Health> {
         self.with_cipher(|cipher| {
-            let mut skipped = 0;
+            let mut skipped = Vec::new();
             let snap = self.snapshot_counting(cipher, &mut skipped)?;
             Ok(Health {
                 records: snap.values().filter(|e| !e.is_tombstone()).count(),
-                unreadable: skipped,
+                unreadable: skipped.len(),
                 generation: snap.values().map(Entry::stamp).max().unwrap_or(0),
             })
         })
@@ -491,13 +525,32 @@ impl Vault {
     }
 
     pub fn touch(&self) {
+        let limit = self.idle_limit_ms.load(Ordering::SeqCst);
+        let expired = limit > 0
+            && self
+                .idle_for()
+                .is_some_and(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX) >= limit);
+        if expired {
+            self.lock();
+            return;
+        }
         if let Some(s) = self.guard().as_mut() {
-            s.last_use = Instant::now();
+            mark(s);
         }
     }
 
+    pub fn set_idle_limit(&self, limit: Option<Duration>) {
+        let ms = limit.map_or(0, |d| {
+            u64::try_from(d.as_millis()).unwrap_or(u64::MAX).max(1)
+        });
+        self.idle_limit_ms.store(ms, Ordering::SeqCst);
+    }
+
     pub fn idle_for(&self) -> Option<Duration> {
-        self.guard().as_ref().map(|s| s.last_use.elapsed())
+        self.guard().as_ref().map(|s| {
+            let wall = Duration::from_millis(now_ms().saturating_sub(s.last_wall));
+            s.last_use.elapsed().max(wall)
+        })
     }
 
     pub fn kdf_params(&self) -> Result<KdfParams> {
@@ -514,17 +567,30 @@ impl Vault {
             return Err(VaultError::Locked);
         }
         let header = self.header()?;
-        let dek = header.unwrap_key(current)?;
-        let fresh = KeyHeader::wrap(next, &dek, kdf, self.tick())?;
+        drop(header.unwrap_key(current)?);
+        let dek = crypto::random_key()?;
+        let epoch = self.tick().max(header.epoch.saturating_add(1));
+        let fresh = KeyHeader::wrap(next, &dek, kdf, epoch)?;
+        let rotated = crypto::cipher(&dek);
         let mut guard = self.guard();
         let sess = guard.as_mut().ok_or(VaultError::Locked)?;
         if self.header()? != header {
             return Err(VaultError::BadPassword);
         }
+        let mut skipped = Vec::new();
+        let all = self.snapshot_counting(&sess.cipher, &mut skipped)?;
+        if !skipped.is_empty() {
+            return Err(VaultError::Unreadable(skipped.len()));
+        }
         let txn = self.db.begin_write()?;
+        wipe(&txn)?;
+        for e in all.values() {
+            store(&txn, &rotated, e)?;
+        }
         write_header(&txn, &fresh)?;
         txn.commit()?;
-        sess.last_use = Instant::now();
+        sess.cipher = rotated;
+        mark(sess);
         Ok(())
     }
 
@@ -553,7 +619,7 @@ impl Vault {
     }
 
     pub fn list<R: Record>(&self) -> Result<Vec<R>> {
-        self.with_cipher(|cipher| scan(&self.db.begin_read()?, cipher, &mut 0))
+        self.with_cipher(|cipher| scan(&self.db.begin_read()?, cipher, &mut Vec::new()))
     }
 
     pub fn remove(&self, id: Id) -> Result<bool> {
@@ -654,9 +720,13 @@ impl Vault {
         let fast = self.with_cipher(|cipher| match sealed.open(cipher) {
             Ok(bundle) => {
                 let local = self.header()?;
-                let adopt = sealed.header != local && sealed.header.epoch > local.epoch;
+                let horizon = now_ms().saturating_add(FUTURE_SKEW_MS);
+                let adopt = sealed.header != local
+                    && sealed.header.epoch > local.epoch
+                    && sealed.header.epoch <= horizon;
                 let report = self.merge_with(cipher, bundle.entries)?;
                 if adopt {
+                    self.observe(sealed.header.epoch);
                     let txn = self.db.begin_write()?;
                     write_header(&txn, &sealed.header)?;
                     txn.commit()?;
@@ -688,13 +758,14 @@ impl Vault {
     ) -> Result<Absorbed> {
         let mut guard = self.guard();
         let sess = guard.as_mut().ok_or(VaultError::Locked)?;
-        let mut skipped = 0;
+        let mut skipped = Vec::new();
         let mut merged = self.snapshot_counting(&sess.cipher, &mut skipped)?;
-        if skipped > 0 {
-            return Err(VaultError::Unreadable(skipped));
+        if !skipped.is_empty() {
+            return Err(VaultError::Unreadable(skipped.len()));
         }
         let mut report = MergeReport::default();
         for e in incoming {
+            let e = not_from_the_future(e);
             self.observe(e.stamp());
             if classify(merged.get(&e.id()), &e, &mut report) {
                 merged.insert(e.id(), e);
@@ -708,7 +779,7 @@ impl Vault {
         write_header(&txn, header)?;
         txn.commit()?;
         sess.cipher = remote;
-        sess.last_use = Instant::now();
+        mark(sess);
         Ok(Absorbed {
             report,
             rekeyed: true,
@@ -717,10 +788,16 @@ impl Vault {
     }
 
     fn merge_with(&self, cipher: &XChaCha20Poly1305, incoming: Vec<Entry>) -> Result<MergeReport> {
-        let local = self.snapshot(cipher)?;
+        let mut unreadable = Vec::new();
+        let local = self.snapshot_counting(cipher, &mut unreadable)?;
         let mut report = MergeReport::default();
         let txn = self.db.begin_write()?;
         for e in incoming {
+            if unreadable.contains(&e.id()) {
+                report.unchanged += 1;
+                continue;
+            }
+            let e = not_from_the_future(e);
             self.observe(e.stamp());
             if classify(local.get(&e.id()), &e, &mut report) {
                 store(&txn, cipher, &e)?;
@@ -731,13 +808,13 @@ impl Vault {
     }
 
     fn snapshot(&self, cipher: &XChaCha20Poly1305) -> Result<BTreeMap<Id, Entry>> {
-        self.snapshot_counting(cipher, &mut 0)
+        self.snapshot_counting(cipher, &mut Vec::new())
     }
 
     fn snapshot_counting(
         &self,
         cipher: &XChaCha20Poly1305,
-        skipped: &mut usize,
+        skipped: &mut Vec<Id>,
     ) -> Result<BTreeMap<Id, Entry>> {
         let txn = self.db.begin_read()?;
         let mut out = BTreeMap::new();
@@ -754,7 +831,7 @@ impl Vault {
     fn with_cipher<T>(&self, f: impl FnOnce(&XChaCha20Poly1305) -> Result<T>) -> Result<T> {
         let mut guard = self.guard();
         let sess = guard.as_mut().ok_or(VaultError::Locked)?;
-        sess.last_use = Instant::now();
+        mark(sess);
         f(&sess.cipher)
     }
 
@@ -772,6 +849,7 @@ impl Vault {
         *self.guard() = Some(Session {
             cipher,
             last_use: Instant::now(),
+            last_wall: now_ms(),
         });
         self.state.send_replace(LockState::Unlocked);
     }
