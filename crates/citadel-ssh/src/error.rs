@@ -55,3 +55,17 @@ pub enum TransportError {
     #[error("remote path {0} is not valid UTF-8")]
     BadPath(String),
 }
+
+impl TransportError {
+    pub fn is_permanent(&self) -> bool {
+        matches!(
+            self,
+            Self::HostKeyRejected { .. }
+                | Self::AuthFailed { .. }
+                | Self::Legacy { .. }
+                | Self::Credential(_)
+                | Self::Cancelled
+                | Self::AgentKeyMissing(_)
+        )
+    }
+}

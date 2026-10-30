@@ -29,6 +29,12 @@ pub enum AgentEndpoint {
     Pipe(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    Local,
+    Server,
+}
+
 #[derive(Clone, Debug)]
 pub struct PromptRequest {
     pub user: String,
@@ -36,6 +42,7 @@ pub struct PromptRequest {
     pub name: String,
     pub instructions: String,
     pub prompts: Vec<(String, bool)>,
+    pub origin: Origin,
 }
 
 pub trait Prompter: Send + Sync + 'static {
@@ -113,17 +120,19 @@ pub fn normalize_pem(raw: &str) -> Zeroizing<String> {
         }
     }
     let trimmed = text.trim();
-    let mut out = Zeroizing::new(String::with_capacity(trimmed.len() + 2));
+    let mut out = Zeroizing::new(String::with_capacity(
+        trimmed.len() + trimmed.len() / PEM_WIDTH + 8,
+    ));
     if !trimmed.contains('\n')
         && let Some((head_end, foot_start)) = armor(trimmed)
     {
         let (head, foot) = (&trimmed[..head_end], &trimmed[foot_start..]);
-        let body: Zeroizing<String> = Zeroizing::new(
-            trimmed[head_end..foot_start]
-                .chars()
-                .filter(|c| !c.is_whitespace())
-                .collect(),
-        );
+        let mut body = Zeroizing::new(String::with_capacity(foot_start - head_end));
+        for c in trimmed[head_end..foot_start].chars() {
+            if !c.is_whitespace() {
+                body.push(c);
+            }
+        }
         if !body.contains(':') {
             out.push_str(head);
             out.push('\n');
@@ -143,11 +152,51 @@ pub fn normalize_pem(raw: &str) -> Zeroizing<String> {
     out
 }
 
+const MAX_BCRYPT_ROUNDS: u32 = 1024;
+const MAX_PPK_MEMORY_KIB: u64 = 256 * 1024;
+const MAX_PPK_PASSES: u64 = 64;
+const MAX_PPK_LANES: u64 = 16;
+
+fn check_kdf_cost(text: &str) -> Result<()> {
+    if text.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----")
+        && let Ok(key) = russh::keys::ssh_key::PrivateKey::from_openssh(text)
+        && let russh::keys::ssh_key::Kdf::Bcrypt { rounds, .. } = key.kdf()
+        && *rounds > MAX_BCRYPT_ROUNDS
+    {
+        return Err(TransportError::Credential(format!(
+            "this key asks for {rounds} bcrypt rounds; Citadel refuses more than {MAX_BCRYPT_ROUNDS}"
+        )));
+    }
+    for line in text.lines() {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let limit = match name.trim() {
+            "Argon2-Memory" => MAX_PPK_MEMORY_KIB,
+            "Argon2-Passes" => MAX_PPK_PASSES,
+            "Argon2-Parallelism" => MAX_PPK_LANES,
+            _ => continue,
+        };
+        match value.trim().parse::<u64>() {
+            Ok(v) if v <= limit => {}
+            _ => {
+                return Err(TransportError::Credential(format!(
+                    "this PuTTY key asks for {} {}; Citadel refuses more than {limit}",
+                    name.trim(),
+                    value.trim()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn decode_key(
     pem: &SecretString,
     passphrase: Option<&SecretString>,
 ) -> Result<Arc<PrivateKey>> {
     let text = normalize_pem(pem.expose_secret());
+    check_kdf_cost(&text)?;
     if text.starts_with("-----BEGIN DSA PRIVATE KEY-----") {
         return Err(TransportError::Credential(
             "DSA keys are disabled in OpenSSH 7.0 and later; generate an ed25519 key instead"
@@ -322,6 +371,7 @@ impl Ctx<'_> {
             name: name.to_owned(),
             instructions: String::new(),
             prompts: lines,
+            origin: Origin::Local,
         };
         Ok(Some(p.prompt(req).await.ok_or(TransportError::Cancelled)?))
     }
@@ -525,6 +575,7 @@ impl Ctx<'_> {
                             name,
                             instructions,
                             prompts: prompts.into_iter().map(|p| (p.prompt, p.echo)).collect(),
+                            origin: Origin::Server,
                         };
                         p.prompt(req).await.ok_or(TransportError::Cancelled)?
                     } else {
@@ -619,6 +670,16 @@ pub(crate) async fn authenticate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hostile_kdf_costs_are_refused_before_decoding() {
+        let normal = "PuTTY-User-Key-File-3: ssh-ed25519\nArgon2-Memory: 8192\nArgon2-Passes: 13\nArgon2-Parallelism: 1\n";
+        assert!(check_kdf_cost(normal).is_ok());
+        let heavy = "PuTTY-User-Key-File-3: ssh-ed25519\nArgon2-Memory: 9437184\n";
+        assert!(check_kdf_cost(heavy).is_err());
+        let garbled = "PuTTY-User-Key-File-3: ssh-ed25519\nArgon2-Passes: lots\n";
+        assert!(check_kdf_cost(garbled).is_err());
+    }
 
     const KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACD3V9lJY29MNi81VWD5Jwn+mDMuiZiZe8HLV6yvwPz+/QAAAJh0ri47dK4u\nOwAAAAtzc2gtZWQyNTUxOQAAACD3V9lJY29MNi81VWD5Jwn+mDMuiZiZe8HLV6yvwPz+/Q\nAAAEC8kQtJ9jAgfyBYoMB73HuyBHcdNq9GpaIPYT2bSMJeivdX2Uljb0w2LzVVYPknCf6Y\nMy6JmJl7wctXrK/A/P79AAAAD2NpdGFkZWwtZml4dHVyZQECAwQFBg==\n-----END OPENSSH PRIVATE KEY-----\n";
 

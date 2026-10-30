@@ -279,10 +279,7 @@ pub async fn recording_save(
     target: String,
     content: String,
 ) -> CmdResult<u64> {
-    let mut path = state.0.grants.redeem(&target, Access::Write)?;
-    if path.extension().and_then(|e| e.to_str()) != Some("cast") {
-        path.as_mut_os_string().push(".cast");
-    }
+    let path = state.0.grants.redeem(&target, Access::Write)?;
     if content.len() > MAX_RECORDING {
         return Err(AppError::invalid("recording exceeds 64 MiB"));
     }

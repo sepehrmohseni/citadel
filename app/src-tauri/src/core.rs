@@ -76,6 +76,7 @@ pub enum PromptKind {
         name: String,
         instructions: String,
         prompts: Vec<PromptLine>,
+        from_server: bool,
     },
 }
 
@@ -197,6 +198,17 @@ struct LinkEvent {
     state: LinkState,
 }
 
+pub struct Lease {
+    core: Arc<Core>,
+    host: Id,
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        self.core.release(self.host);
+    }
+}
+
 pub struct Core {
     pub app: AppHandle,
     pub vault: Arc<Vault>,
@@ -207,6 +219,7 @@ pub struct Core {
     pub ptys: Mutex<HashMap<u32, PtyEntry>>,
     pub tunnels: Mutex<HashMap<Id, TunnelEntry>>,
     pub monitors: Mutex<HashMap<u32, AbortHandle>>,
+    pub fleets: Mutex<HashMap<u32, tokio::sync::watch::Sender<bool>>>,
     pub prompts: Prompts,
     pub unlock_gate: tokio::sync::Mutex<u32>,
     pub grants: crate::grants::Grants,
@@ -235,6 +248,7 @@ impl Core {
             ptys: Mutex::new(HashMap::new()),
             tunnels: Mutex::new(HashMap::new()),
             monitors: Mutex::new(HashMap::new()),
+            fleets: Mutex::new(HashMap::new()),
             prompts: Prompts::default(),
             unlock_gate: tokio::sync::Mutex::new(0),
             grants: crate::grants::Grants::default(),
@@ -333,15 +347,14 @@ impl Core {
         self: &Arc<Self>,
         host: Id,
         wait: Duration,
-    ) -> CmdResult<(LinkHandle, Arc<citadel_ssh::Session>)> {
+    ) -> CmdResult<(Lease, Arc<citadel_ssh::Session>)> {
         let handle = self.acquire(host);
-        match handle.session(wait).await {
-            Ok(s) => Ok((handle, s)),
-            Err(e) => {
-                self.release(host);
-                Err(e.into())
-            }
-        }
+        let lease = Lease {
+            core: self.clone(),
+            host,
+        };
+        let sess = handle.session(wait).await?;
+        Ok((lease, sess))
     }
 
     pub fn link_states(&self) -> Vec<(Id, LinkState)> {
@@ -421,13 +434,22 @@ impl Core {
         });
     }
 
-    pub fn shutdown(&self) {
-        for (_, e) in lock(&self.ptys).drain() {
-            e.task.abort();
+    pub fn detach_frontend(&self) {
+        let ptys: Vec<AbortHandle> = lock(&self.ptys).values().map(|e| e.task.clone()).collect();
+        for task in ptys {
+            task.abort();
         }
         for (_, m) in lock(&self.monitors).drain() {
             m.abort();
         }
+        for (_, halt) in lock(&self.fleets).drain() {
+            let _ = halt.send(true);
+        }
+    }
+
+    pub fn shutdown(&self) {
+        self.detach_frontend();
+        lock(&self.ptys).clear();
         for (_, t) in lock(&self.tunnels).drain() {
             t.watch.abort();
             t.tunnel.stop();

@@ -247,6 +247,23 @@ fn export_one(vault: &Vault, cfg: &mut SshConfig, id: Id, depth: usize) -> CmdRe
         jumps.push(export_one(vault, cfg, j, depth + 1)?);
     }
     let mut entry = cfg.host(&alias);
+    let existing = cfg.aliases().iter().any(|a| a.eq_ignore_ascii_case(&alias));
+    if existing {
+        if entry
+            .hostname
+            .as_deref()
+            .is_some_and(|hn| !hn.eq_ignore_ascii_case(&h.hostname))
+        {
+            return Err(AppError::invalid(format!(
+                "~/.ssh/config already has Host {alias} for a different server; rename the alias in Citadel or edit ~/.ssh/config yourself"
+            )));
+        }
+        if h.agent_forward && entry.forward_agent != Some(true) {
+            return Err(AppError::invalid(format!(
+                "Citadel will not turn on agent forwarding for the existing ~/.ssh/config host {alias}; enable it there yourself"
+            )));
+        }
+    }
     entry.alias.clone_from(&alias);
     entry.hostname = Some(h.hostname.clone());
     entry.user = Some(h.user.clone());
@@ -283,4 +300,48 @@ pub async fn agents_list() -> CmdResult<Vec<AgentSocket>> {
         Ok(discover_with(cfg.as_ref()))
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use citadel_vault::KdfParams;
+
+    fn vault(dir: &std::path::Path) -> Vault {
+        let v = Vault::open(dir.join("v.redb")).unwrap();
+        v.initialize(
+            &SecretString::from("pw"),
+            KdfParams {
+                m_kib: 64,
+                t: 1,
+                p: 1,
+            },
+        )
+        .unwrap();
+        v
+    }
+
+    fn profile(v: &Vault, alias: &str, hostname: &str, forward: bool) -> Id {
+        let mut h = HostProfile::new(alias, hostname, "git", Auth::Interactive).unwrap();
+        h.ssh_alias = Some(alias.to_owned());
+        h.agent_forward = forward;
+        v.put(&mut h).unwrap();
+        h.id
+    }
+
+    #[test]
+    fn export_never_redirects_or_arms_an_existing_ssh_config_host() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = vault(dir.path());
+        let mut cfg = SshConfig::parse("Host github.com\n  HostName github.com\n  User git\n");
+        let hijack = profile(&v, "github.com", "evil.example", false);
+        assert!(export_one(&v, &mut cfg, hijack, 0).is_err());
+        let arm = profile(&v, "github.com", "github.com", true);
+        assert!(export_one(&v, &mut cfg, arm, 0).is_err());
+        assert!(!cfg.render().contains("evil.example"));
+        assert!(!cfg.render().contains("ForwardAgent"));
+        let fresh = profile(&v, "db-1", "10.0.4.12", true);
+        export_one(&v, &mut cfg, fresh, 0).unwrap();
+        assert!(cfg.render().contains("Host db-1"));
+    }
 }

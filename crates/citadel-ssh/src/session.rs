@@ -121,6 +121,15 @@ pub struct ExecOutput {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
     pub status: Option<u32>,
+    pub truncated: bool,
+}
+
+fn fill(buf: &mut Vec<u8>, data: &[u8], cut: &mut bool) {
+    let room = EXEC_CAP.saturating_sub(buf.len());
+    if data.len() > room {
+        *cut = true;
+    }
+    buf.extend_from_slice(&data[..data.len().min(room)]);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,27 +139,87 @@ pub enum ExecEvent {
     Exit(u32),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ended {
+    Status(u32),
+    Signal(String),
+    Unknown,
+}
+
 pub struct ExecStream {
-    ch: russh::Channel<Msg>,
+    ch: Option<russh::Channel<Msg>>,
+}
+
+async fn ended(ch: &mut russh::Channel<Msg>) -> Option<Ended> {
+    loop {
+        match ch.wait().await? {
+            ChannelMsg::ExitStatus { exit_status } => return Some(Ended::Status(exit_status)),
+            ChannelMsg::ExitSignal { signal_name, .. } => {
+                return Some(Ended::Signal(format!("{signal_name:?}")));
+            }
+            ChannelMsg::Close => return None,
+            _ => {}
+        }
+    }
 }
 
 impl ExecStream {
     pub async fn next(&mut self) -> Option<ExecEvent> {
         loop {
-            match self.ch.wait().await? {
-                ChannelMsg::Data { data } => return Some(ExecEvent::Stdout(data)),
-                ChannelMsg::ExtendedData { data, .. } => return Some(ExecEvent::Stderr(data)),
-                ChannelMsg::ExitStatus { exit_status } => {
+            let msg = self.ch.as_mut()?.wait().await;
+            match msg {
+                Some(ChannelMsg::Data { data }) => return Some(ExecEvent::Stdout(data)),
+                Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    return Some(ExecEvent::Stderr(data));
+                }
+                Some(ChannelMsg::ExitStatus { exit_status }) => {
                     return Some(ExecEvent::Exit(exit_status));
                 }
-                ChannelMsg::Close => return None,
-                _ => {}
+                Some(ChannelMsg::Close) | None => {
+                    self.ch = None;
+                    return None;
+                }
+                Some(_) => {}
             }
         }
     }
 
-    pub async fn close(&self) -> Result<()> {
-        Ok(self.ch.close().await?)
+    pub async fn close(&mut self) -> Result<()> {
+        if let Some(ch) = self.ch.take() {
+            ch.close().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn stop(mut self, grace: std::time::Duration) -> Ended {
+        let Some(mut ch) = self.ch.take() else {
+            return Ended::Unknown;
+        };
+        for sig in [russh::Sig::TERM, russh::Sig::KILL] {
+            if ch.signal(sig).await.is_err() {
+                break;
+            }
+            match tokio::time::timeout(grace, ended(&mut ch)).await {
+                Ok(Some(end)) => {
+                    let _ = ch.close().await;
+                    return end;
+                }
+                Ok(None) => return Ended::Unknown,
+                Err(_) => {}
+            }
+        }
+        let _ = ch.close().await;
+        Ended::Unknown
+    }
+}
+
+impl Drop for ExecStream {
+    fn drop(&mut self) {
+        if let (Some(ch), Ok(rt)) = (self.ch.take(), tokio::runtime::Handle::try_current()) {
+            rt.spawn(async move {
+                let _ = ch.close().await;
+            });
+        }
     }
 }
 
@@ -453,14 +522,9 @@ impl Session {
         let mut out = ExecOutput::default();
         while let Some(ev) = stream.next().await {
             match ev {
-                ExecEvent::Stdout(d) if out.stdout.len() + d.len() <= EXEC_CAP => {
-                    out.stdout.extend_from_slice(&d);
-                }
-                ExecEvent::Stderr(d) if out.stderr.len() + d.len() <= EXEC_CAP => {
-                    out.stderr.extend_from_slice(&d);
-                }
+                ExecEvent::Stdout(d) => fill(&mut out.stdout, &d, &mut out.truncated),
+                ExecEvent::Stderr(d) => fill(&mut out.stderr, &d, &mut out.truncated),
                 ExecEvent::Exit(code) => out.status = Some(code),
-                ExecEvent::Stdout(_) | ExecEvent::Stderr(_) => {}
             }
         }
         Ok(out)
@@ -469,7 +533,7 @@ impl Session {
     pub async fn exec_stream(&self, cmd: &str) -> Result<ExecStream> {
         let ch = self.handle.channel_open_session().await?;
         ch.exec(true, cmd).await?;
-        Ok(ExecStream { ch })
+        Ok(ExecStream { ch: Some(ch) })
     }
 
     pub(crate) async fn open_session_channel(&self) -> Result<russh::Channel<Msg>> {

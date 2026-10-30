@@ -76,6 +76,13 @@ impl Drop for Waiting<'_> {
     }
 }
 
+async fn refuse(reply: ChannelOpenHandle) -> Result<(), TransportError> {
+    reply
+        .reject(ChannelOpenFailure::AdministrativelyProhibited)
+        .await;
+    Ok(())
+}
+
 impl Handler for Client {
     type Error = TransportError;
 
@@ -139,6 +146,7 @@ impl Handler for Client {
                 Err(e) => {
                     dest.meter.fail();
                     tracing::debug!(host = %dest.host, port = dest.port, "remote forward target refused: {e}");
+                    let _ = channel.close().await;
                     return;
                 }
             };
@@ -148,6 +156,59 @@ impl Handler for Client {
             let _ = tokio::io::copy_bidirectional(&mut local, &mut remote).await;
         });
         Ok(())
+    }
+
+    async fn server_channel_open_session(
+        &mut self,
+        _channel: russh::Channel<Msg>,
+        reply: ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        refuse(reply).await
+    }
+
+    async fn server_channel_open_x11(
+        &mut self,
+        _channel: russh::Channel<Msg>,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        refuse(reply).await
+    }
+
+    async fn server_channel_open_direct_tcpip(
+        &mut self,
+        _channel: russh::Channel<Msg>,
+        _host_to_connect: &str,
+        _port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        refuse(reply).await
+    }
+
+    async fn server_channel_open_direct_streamlocal(
+        &mut self,
+        _channel: russh::Channel<Msg>,
+        _socket_path: &str,
+        reply: ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        refuse(reply).await
+    }
+
+    async fn server_channel_open_forwarded_streamlocal(
+        &mut self,
+        _channel: russh::Channel<Msg>,
+        _socket_path: &str,
+        reply: ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        refuse(reply).await
     }
 
     async fn server_channel_open_agent_forward(

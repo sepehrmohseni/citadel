@@ -14,7 +14,10 @@ use crate::{Result, Session, TransportError};
 
 const CHUNK: u32 = 32 * 1024;
 const MAX_ENTRIES: usize = 200_000;
-const DEPTH: usize = 64;
+const MAX_NAME: usize = 4096;
+const MAX_LISTING_BYTES: usize = 64 << 20;
+const DEPTH: usize = 32;
+const REQUEST_TIMEOUT_SECS: u64 = 120;
 const POSIX_RENAME: &str = "posix-rename@openssh.com";
 const FSYNC: &str = "fsync@openssh.com";
 
@@ -98,6 +101,7 @@ impl Session {
         ch.request_subsystem(true, "sftp").await?;
         let raw = RawSftpSession::new(ch.into_stream());
         let version = raw.init().await?;
+        raw.set_timeout(REQUEST_TIMEOUT_SECS);
         Ok(Sftp {
             raw: Arc::new(raw),
             posix_rename: version.extensions.contains_key(POSIX_RENAME),
@@ -137,17 +141,19 @@ impl Sftp {
     pub async fn list(&self, path: &str) -> Result<Vec<DirEntry>> {
         let handle = self.raw.opendir(path).await?.handle;
         let mut out = Vec::new();
+        let mut bytes = 0usize;
         let listing = loop {
             match self.raw.readdir(handle.as_str()).await {
                 Ok(name) => {
                     for f in name.files {
-                        if f.filename == "." || f.filename == ".." {
+                        if f.filename == "." || f.filename == ".." || f.filename.len() > MAX_NAME {
                             continue;
                         }
-                        if out.len() >= MAX_ENTRIES {
+                        bytes += f.filename.len();
+                        if out.len() >= MAX_ENTRIES || bytes > MAX_LISTING_BYTES {
                             let _ = self.raw.close(handle.clone()).await;
                             return Err(TransportError::Io(std::io::Error::other(format!(
-                                "directory lists more than {MAX_ENTRIES} entries"
+                                "directory lists more than {MAX_ENTRIES} entries or 64 MiB of names"
                             ))));
                         }
                         let st = stat_of(&f.attrs);
@@ -255,7 +261,12 @@ impl Sftp {
         total: u64,
         progress: &(dyn Fn(Progress) + Send + Sync),
     ) -> Result<u64> {
-        let mut file = fs::File::create(part).await?;
+        let _ = fs::remove_file(part).await;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(part)
+            .await?;
         let mut done = 0u64;
         let chunks = total.div_ceil(u64::from(CHUNK));
         let mut spans = stream::iter(0..chunks)
@@ -346,6 +357,19 @@ impl Sftp {
     }
 
     pub async fn write_atomic(&self, remote: &str, data: &[u8]) -> Result<()> {
+        let target = match self.raw.lstat(remote).await {
+            Ok(a) if a.attrs.is_symlink() => self
+                .raw
+                .realpath(remote)
+                .await?
+                .files
+                .into_iter()
+                .next()
+                .map(|f| f.filename)
+                .ok_or_else(|| std::io::Error::other("the link target could not be resolved"))?,
+            _ => remote.to_owned(),
+        };
+        let remote = target.as_str();
         let mode = match self.raw.stat(remote).await {
             Ok(a) => a.attrs.permissions.map(|p| p & 0o7777),
             Err(e) if is_missing(&e) => None,

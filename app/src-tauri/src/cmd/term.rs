@@ -3,12 +3,11 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use citadel_ssh::{PtyEvent, PtyRequest};
-use citadel_vault::Id;
 use tauri::State;
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 
 use super::AppState;
-use crate::core::{Core, Flow, PtyEntry, lock, parse_id};
+use crate::core::{Core, Flow, Lease, PtyEntry, lock, parse_id};
 use crate::dto::PtyStatus;
 use crate::error::{AppError, CmdResult};
 
@@ -20,13 +19,12 @@ const MAX_DIM: u32 = 2000;
 struct Cleanup {
     core: Arc<Core>,
     pid: u32,
-    host: Id,
+    _lease: Lease,
 }
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
         lock(&self.core.ptys).remove(&self.pid);
-        self.core.release(self.host);
     }
 }
 
@@ -73,7 +71,7 @@ pub async fn pty_open(
     let core = state.0.clone();
     let host = parse_id(&host)?;
     let (cols, rows) = dims(cols, rows)?;
-    let (_, sess) = core.session(host, CONNECT_WAIT).await?;
+    let (lease, sess) = core.session(host, CONNECT_WAIT).await?;
     let req = PtyRequest {
         cols,
         rows,
@@ -83,13 +81,7 @@ pub async fn pty_open(
         ],
         ..PtyRequest::default()
     };
-    let pty = match sess.open_pty(&req).await {
-        Ok(p) => p,
-        Err(e) => {
-            core.release(host);
-            return Err(e.into());
-        }
-    };
+    let pty = sess.open_pty(&req).await?;
     let pid = core.next_id();
     let writer = pty.writer.clone();
     let flow = Arc::new(Flow::default());
@@ -98,8 +90,9 @@ pub async fn pty_open(
     let guard = Cleanup {
         core: core.clone(),
         pid,
-        host,
+        _lease: lease,
     };
+    let mut ptys = lock(&core.ptys);
     let task = tauri::async_runtime::spawn(async move {
         let _guard = guard;
         let mut sent: u64 = 0;
@@ -140,7 +133,7 @@ pub async fn pty_open(
         }
         let _ = status.send(PtyStatus::Closed);
     });
-    lock(&core.ptys).insert(
+    ptys.insert(
         pid,
         PtyEntry {
             writer,
@@ -148,6 +141,7 @@ pub async fn pty_open(
             flow,
         },
     );
+    drop(ptys);
     Ok(pid)
 }
 

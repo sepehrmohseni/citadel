@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use citadel_ssh::{
-    Backoff, Credential, ForwardSpec, Hop, HostKeyVerifier, Link, PtyEvent, PtyRequest, PublicKey,
-    Route, Tunnel, TunnelState, connect,
+    Backoff, Credential, Ended, ForwardSpec, Hop, HostKeyVerifier, Link, PtyEvent, PtyRequest,
+    PublicKey, Route, Tunnel, TunnelState, connect,
 };
 use citadel_testkit::{OpenSsh, echo_server};
 use futures::future::BoxFuture;
@@ -112,6 +112,26 @@ async fn real_exec_and_shell() -> Res {
     pty.writer.write(&b"stty size; exit 0\n"[..]).await?;
     let seen = shell_line(&mut pty, "20 90").await?;
     assert!(seen.contains("20 90"), "{seen}");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn real_exec_stop_ends_the_remote_command() -> Res {
+    let Some(srv) = sshd() else { return Ok(()) };
+    let sess = connect(&route(&srv, 1)).await?;
+    let stream = sess.exec_stream("exec sleep 3717").await?;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let ended = stream.stop(Duration::from_secs(3)).await;
+    assert!(
+        matches!(ended, Ended::Signal(_) | Ended::Status(_)),
+        "{ended:?}"
+    );
+    let left = sess.exec("pgrep -f 'slee[p] 3717' || true").await?;
+    assert!(
+        left.stdout.is_empty(),
+        "remote command survived: {}",
+        String::from_utf8_lossy(&left.stdout)
+    );
     Ok(())
 }
 

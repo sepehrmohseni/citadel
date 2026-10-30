@@ -43,8 +43,9 @@ pub async fn links_list(state: State<'_, AppState>) -> CmdResult<Vec<LinkView>> 
 #[tauri::command]
 pub async fn link_reconnect(state: State<'_, AppState>, host: String) -> CmdResult<()> {
     let id = parse_id(&host)?;
-    if let Some(hub) = lock(&state.0.links).get(&id) {
-        hub.link.reconnect_now();
+    let handle = lock(&state.0.links).get(&id).map(|hub| hub.link.handle());
+    if let Some(handle) = handle {
+        handle.retry().await;
     }
     Ok(())
 }

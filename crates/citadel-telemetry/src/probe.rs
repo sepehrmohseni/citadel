@@ -13,7 +13,8 @@ use crate::{Result, TelemetryError};
 
 const SNAPSHOT_DEADLINE: Duration = Duration::from_secs(20);
 const STDERR_TAIL: usize = 4096;
-const QUEUE: usize = 8;
+const QUEUE: usize = 4;
+const BURST: f64 = 4.0;
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -144,6 +145,9 @@ async fn pump(
         () = halted(&mut stop) => return,
     };
     let mut feed = Feed::default();
+    let refill = (interval / 2).as_secs_f64().max(0.001);
+    let mut tokens = BURST;
+    let mut last = tokio::time::Instant::now();
     loop {
         let ev = tokio::select! {
             () = halted(&mut stop) => break,
@@ -154,6 +158,15 @@ async fn pump(
             return;
         };
         for out in feed.absorb(ev) {
+            if out.is_ok() {
+                let now = tokio::time::Instant::now();
+                tokens = (tokens + now.duration_since(last).as_secs_f64() / refill).min(BURST);
+                last = now;
+                if tokens < 1.0 {
+                    continue;
+                }
+                tokens -= 1.0;
+            }
             let fatal = matches!(out, Err(TelemetryError::Unsupported { .. }));
             match tx.try_send(out) {
                 Ok(()) => {}

@@ -136,6 +136,13 @@ pub fn run() {
     );
     let built = builder
         .setup(setup)
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started
+                && let Some(state) = webview.try_state::<AppState>()
+            {
+                state.0.detach_frontend();
+            }
+        })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                 if let Some(state) = window.try_state::<AppState>() {

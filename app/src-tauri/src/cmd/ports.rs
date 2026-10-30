@@ -4,7 +4,7 @@ use citadel_telemetry::{LISTENERS_COMMAND, Listener, parse_listeners};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
-use super::{AppState, Lease};
+use super::AppState;
 use crate::core::parse_id;
 use crate::error::{AppError, CmdResult};
 
@@ -15,8 +15,7 @@ const PROBE: Duration = Duration::from_secs(10);
 pub async fn ports_list(state: State<'_, AppState>, host: String) -> CmdResult<Vec<Listener>> {
     let core = state.0.clone();
     let host = parse_id(&host)?;
-    let (_, sess) = core.session(host, WAIT).await?;
-    let _lease = Lease::new(&core, host);
+    let (_lease, sess) = core.session(host, WAIT).await?;
     let out = tokio::time::timeout(PROBE, sess.exec(LISTENERS_COMMAND))
         .await
         .map_err(|_| AppError::invalid("listing ports timed out"))??;

@@ -16,8 +16,7 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 
 async fn open(core: &Arc<Core>, host: &str) -> CmdResult<(Lease, Sftp)> {
     let host = parse_id(host)?;
-    let (_, sess) = core.session(host, WAIT).await?;
-    let lease = Lease::new(core, host);
+    let (lease, sess) = core.session(host, WAIT).await?;
     let sftp = sess.sftp().await?;
     Ok((lease, sftp))
 }

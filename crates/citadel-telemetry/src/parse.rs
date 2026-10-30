@@ -65,6 +65,12 @@ fn jiffies(fields: &[&str]) -> Jiffies {
     }
 }
 
+const MAX_CORES: usize = 1024;
+const MAX_IFACES: usize = 256;
+const MAX_DISKS: usize = 256;
+const MAX_CONTAINERS: usize = 512;
+const MAX_DOCKER_BYTES: usize = 1 << 20;
+
 pub(crate) fn stat(lines: &[String]) -> Option<CpuTimes> {
     let mut total = None;
     let mut cores = Vec::new();
@@ -76,7 +82,9 @@ pub(crate) fn stat(lines: &[String]) -> Option<CpuTimes> {
         let fields: Vec<&str> = it.collect();
         if rest.is_empty() {
             total = Some(jiffies(&fields));
-        } else if let Ok(idx) = rest.parse::<u32>() {
+        } else if let Ok(idx) = rest.parse::<u32>()
+            && cores.len() < MAX_CORES
+        {
             cores.push((idx, jiffies(&fields)));
         }
     }
@@ -150,6 +158,7 @@ pub(crate) fn net_dev(lines: &[String]) -> Vec<(String, u64, u64)> {
             }
             Some((name.to_owned(), f[0], f[8]))
         })
+        .take(MAX_IFACES)
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
@@ -240,8 +249,12 @@ fn split_fields(line: &str, n: usize) -> Option<(Vec<&str>, &str)> {
 
 pub(crate) fn df(lines: &[String], types: &HashMap<String, String>) -> Vec<Disk> {
     let mut out: Vec<Disk> = Vec::new();
-    let mut devices: Vec<&str> = Vec::new();
+    let mut devices: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for line in lines {
+        if out.len() >= MAX_DISKS {
+            break;
+        }
         let Some((f, mount)) = split_fields(line, 5) else {
             continue;
         };
@@ -258,13 +271,14 @@ pub(crate) fn df(lines: &[String], types: &HashMap<String, String>) -> Vec<Disk>
         let device = f[0].starts_with("/dev/").then_some(f[0]);
         if pseudo
             || total == 0
-            || out.iter().any(|d| d.mount == mount)
-            || device.is_some_and(|dev| devices.contains(&dev))
+            || seen.contains(mount)
+            || device.is_some_and(|dev| devices.contains(dev))
         {
             continue;
         }
+        seen.insert(mount);
         if let Some(dev) = device {
-            devices.push(dev);
+            devices.insert(dev);
         }
         let denom = used.saturating_add(avail);
         out.push(Disk {
@@ -344,11 +358,14 @@ pub(crate) fn docker(mode: Option<&str>, lines: &[String]) -> Docker {
     match mode {
         None => Docker::Unknown,
         Some("api") => {
+            if lines.iter().map(|l| l.len() + 1).sum::<usize>() > MAX_DOCKER_BYTES {
+                return unavailable("docker api response is larger than 1 MiB");
+            }
             let body = lines.join("\n");
             let body = body.trim();
             match serde_json::from_str::<Value>(body) {
                 Ok(Value::Array(items)) => Docker::Available {
-                    containers: items.iter().map(from_api).collect(),
+                    containers: items.iter().take(MAX_CONTAINERS).map(from_api).collect(),
                 },
                 Ok(Value::Object(o)) => unavailable(
                     o.get("message")
@@ -363,6 +380,9 @@ pub(crate) fn docker(mode: Option<&str>, lines: &[String]) -> Docker {
             let mut containers = Vec::new();
             let mut first_err = None;
             for line in lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()) {
+                if containers.len() >= MAX_CONTAINERS {
+                    break;
+                }
                 match serde_json::from_str::<Value>(line) {
                     Ok(v @ Value::Object(_)) => containers.push(from_cli(&v)),
                     _ => {
@@ -387,6 +407,20 @@ pub(crate) fn docker(mode: Option<&str>, lines: &[String]) -> Docker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docker_output_is_bounded() {
+        let many = format!("[{}{{}}]", "{},".repeat(900));
+        let Docker::Available { containers } = docker(Some("api"), &[many]) else {
+            panic!("expected containers");
+        };
+        assert_eq!(containers.len(), MAX_CONTAINERS);
+        let huge = vec!["0,".repeat(1024); 600];
+        assert!(matches!(
+            docker(Some("api"), &huge),
+            Docker::Unavailable { .. }
+        ));
+    }
 
     fn lines(s: &str) -> Vec<String> {
         s.lines().map(str::to_owned).collect()

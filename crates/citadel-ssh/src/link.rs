@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use rand::RngExt;
 use serde::Serialize;
-use tokio::sync::{Notify, watch};
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 
@@ -76,13 +76,17 @@ pub enum LinkState {
         retry_ms: u64,
         error: String,
     },
+    Failed {
+        attempt: u32,
+        error: String,
+    },
     Stopped,
 }
 
 struct Shared {
     session: watch::Sender<Option<Arc<Session>>>,
     state: watch::Sender<LinkState>,
-    kick: Notify,
+    kick: watch::Sender<u64>,
 }
 
 #[derive(Clone)]
@@ -102,17 +106,38 @@ impl LinkHandle {
     }
 
     pub fn reconnect_now(&self) {
-        self.0.kick.notify_one();
+        self.0.kick.send_modify(|g| *g = g.wrapping_add(1));
+    }
+
+    pub async fn retry(&self) {
+        let failed = matches!(*self.0.state.borrow(), LinkState::Failed { .. });
+        self.reconnect_now();
+        if failed {
+            let mut st = self.state();
+            let _ = timeout(
+                Duration::from_secs(2),
+                st.wait_for(|s| !matches!(s, LinkState::Failed { .. })),
+            )
+            .await;
+        }
     }
 
     pub async fn session(&self, wait: Duration) -> Result<Arc<Session>> {
         let mut rx = self.sessions();
+        let mut st = self.state();
         let found = timeout(wait, async {
             loop {
                 if let Some(s) = rx.borrow_and_update().clone().filter(|s| !s.is_closed()) {
                     return Ok(s);
                 }
-                if rx.changed().await.is_err() {
+                if matches!(*st.borrow_and_update(), LinkState::Failed { .. }) {
+                    return Err(TransportError::NotReady(self.describe()));
+                }
+                let gone = tokio::select! {
+                    r = rx.changed() => r.is_err(),
+                    r = st.changed() => r.is_err(),
+                };
+                if gone {
                     return Err(TransportError::Closed("link stopped".into()));
                 }
             }
@@ -138,6 +163,7 @@ impl LinkHandle {
                 format!("the server has not answered yet (reconnect attempt {attempt})")
             }
             LinkState::Connecting { .. } => "the server has not answered yet".into(),
+            LinkState::Failed { error, .. } => format!("{error}; retry to connect again"),
             LinkState::Up { .. } => "the connection was replaced while waiting".into(),
             LinkState::Idle => "not connected yet".into(),
             LinkState::Stopped => "the connection was stopped".into(),
@@ -155,7 +181,7 @@ impl Link {
         let shared = Arc::new(Shared {
             session: watch::Sender::new(None),
             state: watch::Sender::new(LinkState::Idle),
-            kick: Notify::new(),
+            kick: watch::Sender::new(0),
         });
         let task = tokio::spawn(supervise(shared.clone(), Box::new(dial), backoff));
         Self {
@@ -198,12 +224,14 @@ impl Drop for Link {
 }
 
 async fn supervise(shared: Arc<Shared>, dial: Box<dyn Dial>, backoff: Backoff) {
+    let mut kick = shared.kick.subscribe();
     let mut attempt = 0u32;
     loop {
         attempt = attempt.saturating_add(1);
         shared.state.send_replace(LinkState::Connecting { attempt });
         let error = match dial.dial().await {
             Ok(sess) => {
+                kick.borrow_and_update();
                 let since = Instant::now();
                 shared.session.send_replace(Some(sess.clone()));
                 shared.state.send_replace(LinkState::Up {
@@ -215,7 +243,7 @@ async fn supervise(shared: Arc<Shared>, dial: Box<dyn Dial>, backoff: Backoff) {
                 let reason = loop {
                     tokio::select! {
                         reason = sess.closed() => break reason,
-                        () = shared.kick.notified() => {
+                        _ = kick.changed() => {
                             sess.disconnect().await;
                             break "reconnect requested".to_owned();
                         }
@@ -234,6 +262,18 @@ async fn supervise(shared: Arc<Shared>, dial: Box<dyn Dial>, backoff: Backoff) {
                 tracing::info!(host = sess.host(), "link lost: {reason}");
                 reason
             }
+            Err(e) if e.is_permanent() => {
+                tracing::info!("dial attempt {attempt} failed permanently: {e}");
+                shared.state.send_replace(LinkState::Failed {
+                    attempt,
+                    error: e.to_string(),
+                });
+                if kick.changed().await.is_err() {
+                    return;
+                }
+                attempt = 0;
+                continue;
+            }
             Err(e) => {
                 tracing::debug!("dial attempt {attempt} failed: {e}");
                 e.to_string()
@@ -247,7 +287,7 @@ async fn supervise(shared: Arc<Shared>, dial: Box<dyn Dial>, backoff: Backoff) {
         });
         tokio::select! {
             () = sleep(delay) => {}
-            () = shared.kick.notified() => {}
+            _ = kick.changed() => {}
         }
     }
 }

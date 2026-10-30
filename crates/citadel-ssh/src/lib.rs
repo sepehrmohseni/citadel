@@ -15,8 +15,8 @@ mod socks;
 mod verify;
 
 pub use auth::{
-    AgentEndpoint, Credential, DynAgent, PromptRequest, Prompter, connect_agent, decode_key,
-    default_identity_files, fingerprint, list_agent_keys, normalize_pem,
+    AgentEndpoint, Credential, DynAgent, Origin, PromptRequest, Prompter, connect_agent,
+    decode_key, default_identity_files, fingerprint, list_agent_keys, normalize_pem,
 };
 pub use client::Banner;
 pub use error::{Result, TransportError};
@@ -25,7 +25,7 @@ pub use keys::{KeyFamily, KeyInfo, KeyKind, classify, generate, inspect};
 pub use link::{Backoff, Dial, Link, LinkHandle, LinkState};
 pub use meter::MeterSnapshot;
 pub use pty::{Pty, PtyEvent, PtyRequest, PtyWriter};
-pub use session::{ExecEvent, ExecOutput, ExecStream, Hop, Route, Session, connect};
+pub use session::{Ended, ExecEvent, ExecOutput, ExecStream, Hop, Route, Session, connect};
 pub use sftp::{DirEntry, FileStat, Progress, Sftp};
 pub use verify::{HostKeyStatus, HostKeyVerifier, KnownHostsFile, UnknownHost};
 

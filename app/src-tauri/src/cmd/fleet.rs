@@ -2,15 +2,15 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use citadel_ssh::ExecEvent;
+use citadel_ssh::{Ended, ExecEvent};
 use citadel_vault::Id;
 use serde::Serialize;
 use tauri::State;
 use tauri::ipc::Channel;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, watch};
 use tokio::task::JoinSet;
 
-use super::{AppState, Lease};
+use super::AppState;
 use crate::core::{Core, lock, parse_id};
 use crate::error::{AppError, CmdResult};
 
@@ -19,6 +19,7 @@ const PARALLEL: usize = 16;
 const MAX_COMMAND: usize = 16 * 1024;
 const PER_HOST_OUTPUT: usize = 256 * 1024;
 const CONNECT_WAIT: Duration = Duration::from_secs(30);
+const STOP_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -51,26 +52,82 @@ fn elapsed_ms(t: Instant) -> u64 {
     u64::try_from(t.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
+#[derive(Clone, Copy)]
+enum Halt {
+    Cancelled,
+    TimedOut,
+}
+
+enum Outcome {
+    Done(Option<u32>),
+    Halted(Halt, Option<Ended>),
+}
+
+enum Step {
+    Event(Option<ExecEvent>),
+    Halt(Halt),
+}
+
+async fn halted(rx: &mut watch::Receiver<bool>) {
+    if rx.wait_for(|stop| *stop).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
+fn halt_message(why: Halt, limit: Duration, ended: Option<Ended>) -> String {
+    let what = match why {
+        Halt::Cancelled => "cancelled".to_owned(),
+        Halt::TimedOut => format!("timed out after {} s", limit.as_secs()),
+    };
+    match ended {
+        None => format!("{what} before the command started"),
+        Some(Ended::Status(code)) => format!("{what}; the command stopped with exit status {code}"),
+        Some(Ended::Signal(sig)) => format!("{what}; the command was stopped by SIG{sig}"),
+        Some(Ended::Unknown) => {
+            format!(
+                "{what}; the server did not confirm that the command stopped, so it may still be running"
+            )
+        }
+    }
+}
+
 async fn one(
     core: Arc<Core>,
     host: Id,
     command: Arc<str>,
     limit: Duration,
     feed: Channel<FleetEvent>,
+    mut stop: watch::Receiver<bool>,
 ) {
     let label = host.to_string();
     let started = Instant::now();
     let _ = feed.send(FleetEvent::Started {
         host: label.clone(),
     });
+    let deadline = tokio::time::Instant::now() + limit;
     let run = async {
-        let (_, sess) = core.session(host, CONNECT_WAIT).await?;
-        let _lease = Lease::new(&core, host);
+        let (_lease, sess) = tokio::select! {
+            r = core.session(host, CONNECT_WAIT) => r?,
+            () = tokio::time::sleep_until(deadline) => return Ok(Outcome::Halted(Halt::TimedOut, None)),
+            () = halted(&mut stop) => return Ok(Outcome::Halted(Halt::Cancelled, None)),
+        };
         let mut stream = sess.exec_stream(&command).await?;
         let mut sent = 0usize;
         let mut status = None;
         let mut cut = false;
-        while let Some(ev) = stream.next().await {
+        loop {
+            let step = tokio::select! {
+                ev = stream.next() => Step::Event(ev),
+                () = tokio::time::sleep_until(deadline) => Step::Halt(Halt::TimedOut),
+                () = halted(&mut stop) => Step::Halt(Halt::Cancelled),
+            };
+            let ev = match step {
+                Step::Halt(why) => {
+                    return Ok(Outcome::Halted(why, Some(stream.stop(STOP_GRACE).await)));
+                }
+                Step::Event(None) => break,
+                Step::Event(Some(ev)) => ev,
+            };
             let (bytes, stderr) = match ev {
                 ExecEvent::Stdout(b) => (b, false),
                 ExecEvent::Stderr(b) => (b, true),
@@ -97,22 +154,22 @@ async fn one(
                 text,
             });
         }
-        Ok::<_, AppError>(status)
+        Ok::<_, AppError>(Outcome::Done(status))
     };
-    let event = match tokio::time::timeout(limit, run).await {
-        Ok(Ok(status)) => FleetEvent::Done {
+    let event = match run.await {
+        Ok(Outcome::Done(status)) => FleetEvent::Done {
             host: label,
             status,
             ms: elapsed_ms(started),
         },
-        Ok(Err(e)) => FleetEvent::Failed {
+        Ok(Outcome::Halted(why, ended)) => FleetEvent::Failed {
             host: label,
-            error: e.to_string(),
+            error: halt_message(why, limit, ended),
             ms: elapsed_ms(started),
         },
-        Err(_) => FleetEvent::Failed {
+        Err(e) => FleetEvent::Failed {
             host: label,
-            error: format!("timed out after {} s", limit.as_secs()),
+            error: e.to_string(),
             ms: elapsed_ms(started),
         },
     };
@@ -143,31 +200,33 @@ pub async fn fleet_run(
     let limit = Duration::from_secs(u64::from(timeout_secs.clamp(1, 3600)));
     let command: Arc<str> = Arc::from(command);
     let reg = core.clone();
-    let task = tauri::async_runtime::spawn(async move {
+    let (halt, stop) = watch::channel(false);
+    lock(&core.fleets).insert(id, halt);
+    tauri::async_runtime::spawn(async move {
         let gate = Arc::new(Semaphore::new(PARALLEL));
         let mut set = JoinSet::new();
         for host in ids {
             let Ok(permit) = gate.clone().acquire_owned().await else {
                 break;
             };
-            let (core, command, feed) = (core.clone(), command.clone(), feed.clone());
+            let (core, command, feed, stop) =
+                (core.clone(), command.clone(), feed.clone(), stop.clone());
             set.spawn(async move {
                 let _permit = permit;
-                one(core, host, command, limit, feed).await;
+                one(core, host, command, limit, feed, stop).await;
             });
         }
         while set.join_next().await.is_some() {}
+        lock(&reg.fleets).remove(&id);
         let _ = feed.send(FleetEvent::Finished);
-        lock(&reg.monitors).remove(&id);
     });
-    lock(&state.0.monitors).insert(id, task.inner().abort_handle());
     Ok(id)
 }
 
 #[tauri::command]
 pub async fn fleet_cancel(state: State<'_, AppState>, id: u32) -> CmdResult<()> {
-    if let Some(task) = lock(&state.0.monitors).remove(&id) {
-        task.abort();
+    if let Some(halt) = lock(&state.0.fleets).get(&id) {
+        let _ = halt.send(true);
     }
     Ok(())
 }

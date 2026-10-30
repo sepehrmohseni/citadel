@@ -82,7 +82,12 @@ fn build(f: &RawFrame, prev: Option<&Sample>, cur: &Sample, at_ms: u64) -> Resul
                 .iter()
                 .map(|(idx, j)| {
                     prev_cpu
-                        .and_then(|p| p.cores.iter().find(|(i, _)| i == idx))
+                        .and_then(|p| {
+                            p.cores
+                                .binary_search_by_key(idx, |(i, _)| *i)
+                                .ok()
+                                .and_then(|k| p.cores.get(k))
+                        })
                         .map_or(0.0, |(_, pj)| parse::pct(*pj, *j))
                 })
                 .collect();

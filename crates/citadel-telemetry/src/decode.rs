@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use crate::script::MARK;
 
 const MAX_PENDING: usize = 1 << 20;
-const MAX_SECTION_LINES: usize = 16_384;
+const MAX_SECTION_LINES: usize = 4096;
 const MAX_SECTIONS: usize = 32;
-const MAX_FRAME_BYTES: usize = 8 << 20;
+const MAX_FRAME_BYTES: usize = 2 << 20;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RawFrame {

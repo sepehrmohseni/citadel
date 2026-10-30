@@ -5,7 +5,7 @@ use serde::Serialize;
 use tauri::State;
 use tauri::ipc::Channel;
 
-use super::{AppState, Lease};
+use super::AppState;
 use crate::core::{lock, parse_id};
 use crate::error::CmdResult;
 
@@ -25,8 +25,7 @@ pub async fn telemetry_start(
 ) -> CmdResult<u32> {
     let core = state.0.clone();
     let host = parse_id(&host)?;
-    let (_, sess) = core.session(host, Duration::from_secs(45)).await?;
-    let lease = Lease::new(&core, host);
+    let (lease, sess) = core.session(host, Duration::from_secs(45)).await?;
     let every = Duration::from_millis(u64::from(core.prefs().telemetry_ms));
     let mut mon = citadel_telemetry::monitor(sess, every);
     let id = core.next_id();

@@ -218,6 +218,7 @@ pub struct Neutralized {
     pub autostart: usize,
     pub agent_forward: usize,
     pub host_keys: usize,
+    pub device_only: usize,
     pub rejected: usize,
 }
 
@@ -311,10 +312,10 @@ pub(crate) fn quarantine(entries: Vec<Entry>) -> (Vec<Entry>, Neutralized) {
             Entry::Identity(k) => tidy(&k.label, 128).is_some().then_some(Entry::Identity(k)),
             Entry::Snippet(s) => (tidy(&s.label, 128).is_some() && s.body.len() <= 64 * 1024)
                 .then_some(Entry::Snippet(s)),
-            Entry::SyncTarget(t) => tidy(&t.label, 128)
-                .is_some()
-                .then_some(Entry::SyncTarget(t)),
-            Entry::Tombstone(t) => Some(Entry::Tombstone(t)),
+            Entry::SyncTarget(_) | Entry::Tombstone(_) => {
+                n.device_only += 1;
+                continue;
+            }
         };
         match kept {
             Some(mut e) => {

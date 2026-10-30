@@ -17,9 +17,8 @@ pub mod vault;
 
 use std::sync::Arc;
 
-use citadel_vault::Id;
-
 use crate::core::Core;
+pub use crate::core::Lease;
 use crate::error::CmdResult;
 
 pub struct AppState(pub Arc<Core>);
@@ -30,24 +29,4 @@ where
     F: FnOnce() -> CmdResult<T> + Send + 'static,
 {
     tokio::task::spawn_blocking(f).await?
-}
-
-pub struct Lease {
-    core: Arc<Core>,
-    host: Id,
-}
-
-impl Lease {
-    pub fn new(core: &Arc<Core>, host: Id) -> Self {
-        Self {
-            core: core.clone(),
-            host,
-        }
-    }
-}
-
-impl Drop for Lease {
-    fn drop(&mut self) {
-        self.core.release(self.host);
-    }
 }

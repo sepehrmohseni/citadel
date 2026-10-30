@@ -122,8 +122,19 @@ fn host_match(alias: &str, patterns: &[String]) -> bool {
     hit
 }
 
+const MAX_CONFIG_BYTES: u64 = 1 << 20;
+const MAX_ALIASES: usize = 2000;
+
 fn match_all(args: &[String]) -> bool {
     args.len() == 1 && args[0].eq_ignore_ascii_case("all")
+}
+
+fn forward_flag(v: &str) -> Option<bool> {
+    match v.to_ascii_lowercase().as_str() {
+        "yes" | "true" => Some(true),
+        "" => None,
+        _ => Some(false),
+    }
 }
 
 fn flag(v: &str) -> Option<bool> {
@@ -153,7 +164,7 @@ fn apply(h: &mut SshHost, seen: &mut Vec<Key>, key: &str, args: &[String]) {
         Key::User => h.user = Some(first.to_owned()),
         Key::Port => h.port = first.parse().ok(),
         Key::IdentityAgent => h.identity_agent = Some(first.to_owned()),
-        Key::ForwardAgent => h.forward_agent = flag(first),
+        Key::ForwardAgent => h.forward_agent = forward_flag(first),
         Key::IdentitiesOnly => h.identities_only = flag(first),
         Key::ProxyJump => {
             h.proxy_jump = if first.eq_ignore_ascii_case("none") {
@@ -195,7 +206,18 @@ impl SshConfig {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        match fs::read(path) {
+        let read = fs::File::open(path).and_then(|f| {
+            let mut raw = Vec::new();
+            std::io::Read::read_to_end(
+                &mut std::io::Read::take(f, MAX_CONFIG_BYTES + 1),
+                &mut raw,
+            )?;
+            if raw.len() as u64 > MAX_CONFIG_BYTES {
+                return Err(std::io::Error::other("ssh config is larger than 1 MiB"));
+            }
+            Ok(raw)
+        });
+        match read {
             Ok(raw) => {
                 let text = String::from_utf8(raw)
                     .map_err(|_| ConfigError::Encoding(path.to_path_buf()))?;
@@ -217,12 +239,16 @@ impl SshConfig {
 
     pub fn aliases(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for d in self.lines.iter().filter_map(Line::directive) {
             if d.key != "host" {
                 continue;
             }
             for p in d.args.iter().filter(|p| concrete(p)) {
-                if !out.iter().any(|a| a.eq_ignore_ascii_case(p)) {
+                if out.len() >= MAX_ALIASES {
+                    return out;
+                }
+                if seen.insert(p.to_ascii_lowercase()) {
                     out.push(p.clone());
                 }
             }

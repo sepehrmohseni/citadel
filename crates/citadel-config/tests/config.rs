@@ -445,3 +445,25 @@ fn values_with_control_characters_cannot_inject_directives() {
     );
     assert_eq!(SshConfig::parse(&text).hosts().len(), 1);
 }
+
+#[test]
+fn forward_agent_to_a_socket_is_not_read_as_yes() {
+    let c = SshConfig::parse(
+        "Host a\n  ForwardAgent yes\nHost b\n  ForwardAgent ~/.ssh/limited.sock\nHost c\n  ForwardAgent $SSH_AUTH_SOCK\n",
+    );
+    assert_eq!(c.host("a").forward_agent, Some(true));
+    assert_eq!(c.host("b").forward_agent, Some(false));
+    assert_eq!(c.host("c").forward_agent, Some(false));
+}
+
+#[test]
+fn aliases_are_deduplicated_and_capped() {
+    let mut text = String::from("Host A a\n");
+    for i in 0..3000 {
+        text.push_str(&format!("Host h{i}\n"));
+    }
+    let names = SshConfig::parse(&text).aliases();
+    assert_eq!(names[0], "A");
+    assert!(!names.iter().skip(1).any(|n| n == "a"));
+    assert_eq!(names.len(), 2000);
+}

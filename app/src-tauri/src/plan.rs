@@ -110,7 +110,7 @@ pub fn route(core: &Arc<Core>, host: Id) -> CmdResult<Route> {
     }
     let target = hosts.last().ok_or(AppError::NotFound("host"))?;
     let app = core.app.clone();
-    let label = target.label.clone();
+    let target_id = target.id.to_string();
     Ok(Route {
         hops,
         keepalive: Duration::from_secs(u64::from(target.keepalive_secs)),
@@ -118,7 +118,7 @@ pub fn route(core: &Arc<Core>, host: Id) -> CmdResult<Route> {
         agent_forward: target.agent_forward,
         verifier: Arc::new(VaultVerifier { core: core.clone() }),
         banner: Some(Arc::new(move |text: &str| {
-            let _ = app.emit(EV_BANNER, (label.clone(), text.to_owned()));
+            let _ = app.emit(EV_BANNER, (target_id.clone(), text.to_owned()));
         })),
         prompter: Some(Arc::new(UiPrompter { core: core.clone() })),
         agent_gate: Some(core.agent_gate.clone()),
@@ -134,6 +134,7 @@ impl Prompter for UiPrompter {
         let core = self.core.clone();
         Box::pin(async move {
             let kind = PromptKind::Interactive {
+                from_server: req.origin == citadel_ssh::Origin::Server,
                 host: req.host,
                 user: req.user,
                 name: req.name,
@@ -172,24 +173,26 @@ enum Trust {
     Changed(Option<String>),
 }
 
-fn assess(core: &Core, host: &str, port: u16, key: &PublicKey) -> Trust {
+fn assess(core: &Core, host: &str, port: u16, key: &PublicKey) -> citadel_vault::Result<Trust> {
     let (alg, blob) = key_parts(key);
-    let stored = core.vault.list::<KnownHost>().unwrap_or_default();
+    let stored = core.vault.list::<KnownHost>()?;
     let mut previous = None;
     for k in stored.iter().filter(|k| k.host == host && k.port == port) {
         if k.algorithm == alg && k.key == blob {
-            return Trust::Known;
+            return Ok(Trust::Known);
         }
         previous.get_or_insert_with(|| k.fingerprint.clone());
     }
     if previous.is_some() {
-        return Trust::Changed(previous);
+        return Ok(Trust::Changed(previous));
     }
-    match KnownHostsFile::system(UnknownHost::Reject).map(|f| f.status(host, port, key)) {
-        Some(Ok(HostKeyStatus::Known)) => Trust::Known,
-        Some(Ok(HostKeyStatus::Changed { .. })) => Trust::Changed(None),
-        _ => Trust::Unknown,
-    }
+    Ok(
+        match KnownHostsFile::system(UnknownHost::Reject).map(|f| f.status(host, port, key)) {
+            Some(Ok(HostKeyStatus::Known)) => Trust::Known,
+            Some(Ok(HostKeyStatus::Changed { .. })) => Trust::Changed(None),
+            _ => Trust::Unknown,
+        },
+    )
 }
 
 fn remember(vault: &Vault, host: &str, port: u16, key: &PublicKey) -> CmdResult<()> {
@@ -222,9 +225,18 @@ impl HostKeyVerifier for VaultVerifier {
         Box::pin(async move {
             let core = self.core.clone();
             let (h, k) = (host.to_owned(), key.clone());
-            let trust = tokio::task::spawn_blocking(move || assess(&core, &h, port, &k))
-                .await
-                .unwrap_or(Trust::Unknown);
+            let trust = match tokio::task::spawn_blocking(move || assess(&core, &h, port, &k)).await
+            {
+                Ok(Ok(t)) => t,
+                _ => {
+                    tracing::warn!(
+                        host,
+                        port,
+                        "known hosts could not be read; refusing the host key"
+                    );
+                    return Ok(false);
+                }
+            };
             let (status, previous) = match trust {
                 Trust::Known => return Ok(true),
                 Trust::Unknown => ("unknown", None),
