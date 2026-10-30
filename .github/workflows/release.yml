@@ -2,8 +2,8 @@ name: Release
 
 # Tag push (v*): builds every installer without write access, signs the APK in
 # its own job, then one publish job (which runs no build code) attaches every
-# file plus SHA256SUMS to a draft release. Publish the draft by hand.
-# Manual run (workflow_dispatch): same builds, results stay workflow artifacts.
+# file plus SHA256SUMS and publishes the release. If the APK is missing the
+# release stays a draft. Manual run (workflow_dispatch): artifacts only.
 
 on:
   push:
@@ -268,18 +268,28 @@ jobs:
           sha256sum -- * > ../SHA256SUMS
           mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS
-      - name: Attach to draft release
+      - name: Attach files and publish
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          ANDROID: ${{ needs.sign-android.result }}
         run: |
-          state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
-          if [ "$state" != "true" ]; then
-            echo "::error::release $TAG is no longer a draft; refusing to replace its assets"
+          info=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets --jq '"\(.isDraft) \(.assets | length)"')
+          draft=${info% *}
+          count=${info#* }
+          if [ "$draft" != "true" ] && [ "$count" != "0" ]; then
+            echo "::error::release $TAG is already published with files; refusing to replace them"
             exit 1
           fi
           gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          if [ "$ANDROID" != "success" ]; then
+            echo "::warning::the Android APK is missing, so $TAG stays a draft; publish it by hand if that is fine"
+            exit 0
+          fi
+          if [ "$draft" = "true" ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi
       - name: Upload combined artifact
         if: github.event_name != 'push'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

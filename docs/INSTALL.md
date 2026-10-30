@@ -263,10 +263,12 @@ repository access and never see the release token or the signing key. The APK
 is built unsigned and signed in a separate job that runs no build code and
 checks the result against the release certificate. A final publish job, which
 also runs no build code, computes `SHA256SUMS` from the files CI produced and
-attaches everything to the draft, checking again that it is still a draft.
-Every third-party action is pinned to a commit.
-Review the draft and publish it by hand; until then the install scripts report
-"no published release found".
+attaches everything, then publishes the release. If the APK could not be
+built or signed, the release stays a draft so it never goes public without it.
+The job never replaces files on a release that is already published. Every
+third-party action is pinned to a commit.
+Until it is published the install scripts report "no published release
+found".
 
 | Runner | Assets |
 | --- | --- |
