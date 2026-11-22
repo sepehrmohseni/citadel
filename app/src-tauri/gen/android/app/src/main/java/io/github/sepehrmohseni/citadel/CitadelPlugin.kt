@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
@@ -22,6 +23,11 @@ import java.io.File
 class KeepAliveArgs {
   var sessions: Int = 0
   var text: String = ""
+}
+
+@InvokeArg
+class WatchArgs {
+  lateinit var channel: Channel
 }
 
 @InvokeArg
@@ -51,6 +57,14 @@ class CitadelPlugin(private val activity: Activity) : Plugin(activity) {
     } catch (e: Exception) {
       invoke.reject(e.message ?: "could not keep sessions alive")
     }
+  }
+
+  @Command
+  fun watchDisconnect(invoke: Invoke) {
+    val args = invoke.parseArgs(WatchArgs::class.java)
+    val channel = args.channel
+    SessionService.onDisconnect = { channel.send(JSObject()) }
+    invoke.resolve()
   }
 
   @Command

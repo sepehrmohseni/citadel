@@ -77,6 +77,7 @@ permissions = [
   "allow-links-list",
   "allow-link-reconnect",
   "allow-keep-alive",
+  "allow-watch-disconnect",
   "allow-save-download",
   "allow-vault-audit",
   "allow-recording-save",

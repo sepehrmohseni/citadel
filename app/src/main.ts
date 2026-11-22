@@ -8,7 +8,7 @@ import { restoreSession, trackSession } from "./session";
 import { factories, mountShell, registerPage, setLocked } from "./shell";
 import { clearSensitive, prefs, refreshAll, wireEvents } from "./store";
 import { setOverrides } from "./keymap";
-import { layoutTab, terminalTab, type LayoutSpec } from "./terminal";
+import { layoutTab, terminalTab, watchSessionNotification, type LayoutSpec } from "./terminal";
 import { fail } from "./ui";
 import { filesTab } from "./views/files";
 import { auditPage } from "./views/audit";
@@ -82,6 +82,7 @@ async function boot(): Promise<void> {
   });
   wireEvents();
   initPrompts();
+  watchSessionNotification();
   const status = await api.vaultStatus();
   void events.vault((state) => {
     if (state === "unlocked") {

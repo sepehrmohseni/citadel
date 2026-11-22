@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDr
 const { Signal } = await import("../store");
 const { THEMES, themeFor } = await import("../themes");
 const { parseQuick, parseSsh } = await import("../palette");
-const { keyOf, terminalChord, foreignKey } = await import("../dom");
+const { keyOf, terminalChord, foreignKey, latchInput } = await import("../dom");
 const { rtlRuns, withFallback } = await import("../terminal");
 const keymap = await import("../keymap");
 const { primaryFamily, stackFor } = await import("../pickers");
@@ -116,6 +116,41 @@ describe("keyboard layouts", () => {
     expect(terminalChord(key({ key: "c", code: "KeyC", ctrlKey: true }), true)).toBeNull();
     expect(terminalChord(key({ key: "ز", code: "KeyC", ctrlKey: true, altKey: true }), true)).toBeNull();
     expect(terminalChord(key({ key: "ز", code: "KeyC", ctrlKey: true, shiftKey: true }), true)).toBeNull();
+  });
+});
+
+describe("on-screen Ctrl and Alt keys", () => {
+  it("modify a single typed key", () => {
+    expect(latchInput("b", true, false)).toEqual({ out: "\x02", used: true });
+    expect(latchInput("C", true, false)).toEqual({ out: "\x03", used: true });
+    expect(latchInput(" ", true, false)).toEqual({ out: "\x00", used: true });
+    expect(latchInput("\\", true, false)).toEqual({ out: "\x1c", used: true });
+    expect(latchInput("b", false, true)).toEqual({ out: "\x1bb", used: true });
+    expect(latchInput("b", true, true)).toEqual({ out: "\x1b\x02", used: true });
+    expect(latchInput("b", false, false)).toEqual({ out: "b", used: false });
+  });
+
+  it("modify only the first key of a chunk an Android keyboard composed", () => {
+    expect(latchInput("bs", true, false)).toEqual({ out: "\x02s", used: true });
+    expect(latchInput("bs", false, true)).toEqual({ out: "\x1bbs", used: true });
+  });
+
+  it("leave text composed before arming alone", () => {
+    expect(latchInput("lsu", true, false, 2)).toEqual({ out: "ls\x15", used: true });
+    expect(latchInput("ls", true, false, 2)).toEqual({ out: "ls", used: false });
+    expect(latchInput("l", true, false, 2)).toEqual({ out: "l", used: false });
+  });
+
+  it("add modifiers to cursor and editing keys", () => {
+    expect(latchInput("\x1b[D", true, false)).toEqual({ out: "\x1b[1;5D", used: true });
+    expect(latchInput("\x1bOA", false, true)).toEqual({ out: "\x1b[1;3A", used: true });
+    expect(latchInput("\x1b[3~", true, false, 4)).toEqual({ out: "\x1b[3;5~", used: true });
+    expect(latchInput("\x1b", true, false)).toEqual({ out: "\x1b", used: true });
+  });
+
+  it("keep characters outside ASCII intact", () => {
+    expect(latchInput("😀x", true, false)).toEqual({ out: "😀x", used: true });
+    expect(latchInput("K", true, false)).toEqual({ out: "K", used: true });
   });
 });
 

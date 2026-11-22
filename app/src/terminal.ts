@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 
 import { Channel, api, errCode, errText, events, type Id, type Listener, type Prefs, type PtyStatus } from "./api";
-import { bytes, h, icon, terminalChord } from "./dom";
+import { bytes, h, icon, latchInput, terminalChord } from "./dom";
 import { bind, bindings, pretty } from "./keymap";
 import { DEFAULT_FONT, loadFont } from "./fonts";
 import { primaryFamily } from "./pickers";
@@ -110,6 +110,7 @@ export interface Pane {
   text(): string;
   renderer(): string;
   connected(): boolean;
+  disconnect(): void;
   pasteText(text: string): void;
 }
 
@@ -134,6 +135,16 @@ function syncKeepAlive(): void {
     keepLast = sig;
     void api.keepAlive(up.length, names).catch(() => undefined);
   });
+}
+
+/** Lets the Disconnect button on Android's session notification close every session. */
+export function watchSessionNotification(): void {
+  if (!ANDROID) return;
+  const feed = new Channel<unknown>();
+  feed.onmessage = () => {
+    for (const p of [...live.values()]) p.disconnect();
+  };
+  void api.watchDisconnect(feed).catch(() => undefined);
 }
 const byEl = new WeakMap<Element, Pane>();
 const broadcast = new Set<string>();
@@ -676,6 +687,20 @@ function createPane(host: Id, changed: () => void): Pane {
     ]);
   };
 
+  const disconnect = () => {
+    const old = pid;
+    if (disposed || (old === null && !connecting && !waiting)) return;
+    attempt++;
+    connecting = false;
+    stopWaiting();
+    if (tele.open) tele.stop();
+    if (portsPanel.open) portsPanel.stop();
+    requestAnimationFrame(refit);
+    exitCode = null;
+    ended();
+    if (old !== null) void api.ptyClose(old).catch(() => undefined);
+  };
+
   const reconnect = async () => {
     if (pid !== null) {
       const ok = await confirmBox("Reconnect session", "The current shell will be closed and a new one opened.", { confirm: "Reconnect" });
@@ -800,30 +825,36 @@ function createPane(host: Id, changed: () => void): Pane {
     void readClipboard().then((text) => (text ? pasteGuard(text) : undefined), (err) => fail(err, "Clipboard unavailable"));
   };
 
-  const latch = { ctrl: false, alt: false };
+  const latch = { ctrl: false, alt: false, skip: 0 };
   const latchEls: HTMLElement[] = [];
+  let composing = false;
+  let composeStart = 0;
+  const composed = () => (composing && term.textarea ? Math.max(0, term.textarea.value.length - composeStart) : 0);
+  const stripEl = h(
+    "div",
+    { class: "term-strip", role: "toolbar", "aria-label": "Keys for Ctrl and Alt", hidden: true },
+    [..."abcdefghijklmnopqrstuvwxyz\\]_ "].map((c) => {
+      const b = h("button", { class: "term-key", type: "button", tabindex: "-1" }, c === " " ? "␣" : c);
+      b.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        latch.skip = 0;
+        term.input(c, true);
+      });
+      return b;
+    }),
+  );
+  const syncLatch = () => {
+    for (const el of latchEls) el.classList.toggle("on", el.dataset.key === "ctrl" ? latch.ctrl : latch.alt);
+    stripEl.hidden = !latch.ctrl && !latch.alt;
+  };
   const applyLatch = (d: string): string => {
     if (!latch.ctrl && !latch.alt) return d;
-    const mod = 1 + (latch.alt ? 2 : 0) + (latch.ctrl ? 4 : 0);
-    const csi = /^\x1b(?:\[|O)([A-DHF])$/.exec(d);
-    const tilde = /^\x1b\[(\d+)~$/.exec(d);
-    if (csi || tilde || d.startsWith("\x1b")) {
+    const { out, used } = latchInput(d, latch.ctrl, latch.alt, latch.skip);
+    latch.skip = 0;
+    if (used) {
       latch.ctrl = latch.alt = false;
-      for (const el of latchEls) el.classList.remove("on");
-      if (csi) return `\x1b[1;${mod}${csi[1]}`;
-      if (tilde) return `\x1b[${tilde[1]};${mod}~`;
-      return d;
+      syncLatch();
     }
-    let out = d;
-    if (latch.ctrl && d.length === 1) {
-      const c = d.toLowerCase().charCodeAt(0);
-      if (c >= 97 && c <= 122) out = String.fromCharCode(c - 96);
-      else if (d === " " || d === "@") out = "\x00";
-      else if ("[\\]^_".includes(d)) out = String.fromCharCode(d.charCodeAt(0) - 64);
-    }
-    if (latch.alt) out = `\x1b${out}`;
-    latch.ctrl = latch.alt = false;
-    for (const el of latchEls) el.classList.remove("on");
     return out;
   };
   const cursorKey = (k: string) => () => (term.modes.applicationCursorKeysMode ? `\x1bO${k}` : `\x1b[${k}`);
@@ -838,10 +869,11 @@ function createPane(host: Id, changed: () => void): Pane {
   ];
   let fnLayer = false;
   const keysEl = h("div", { class: "term-keys", role: "toolbar", "aria-label": "Terminal keys" });
-  const press = (out: KeySpec[1], b: HTMLElement) => {
+  const press = (out: KeySpec[1]) => {
     if (out === "ctrl" || out === "alt") {
+      if (!latch.ctrl && !latch.alt) latch.skip = composed();
       latch[out] = !latch[out];
-      b.classList.toggle("on", latch[out]);
+      syncLatch();
       if (latch[out]) term.focus();
     } else if (out === "fn") {
       fnLayer = !fnLayer;
@@ -851,6 +883,7 @@ function createPane(host: Id, changed: () => void): Pane {
       else term.focus();
     } else {
       const seq = typeof out === "function" ? out() : out;
+      latch.skip = 0;
       term.input(seq, true);
     }
   };
@@ -862,7 +895,7 @@ function createPane(host: Id, changed: () => void): Pane {
         const b = h("button", { class: `term-key${on || (out === "fn" && fnLayer) ? " on" : ""}`, type: "button", tabindex: "-1", dataset: { key: label } }, label);
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          press(out, b);
+          press(out);
         });
         if (out === "ctrl" || out === "alt") latchEls.push(b);
         return b;
@@ -870,7 +903,7 @@ function createPane(host: Id, changed: () => void): Pane {
     );
   };
   renderKeys();
-  main.append(keysEl);
+  main.append(h("div", { class: "term-dock" }, stripEl, keysEl));
 
   const lines = (from: number, to: number) => {
     const b = term.buffer.active;
@@ -947,7 +980,7 @@ function createPane(host: Id, changed: () => void): Pane {
   };
 
   term.onData((raw) => {
-    const d = applyLatch(raw);
+    const d = pasting ? raw : applyLatch(raw);
     wakeCursor();
     sendString(d);
     if (!pasting && broadcast.has(key) && !REPORT.test(d)) {
@@ -1056,6 +1089,13 @@ function createPane(host: Id, changed: () => void): Pane {
     attachGl();
     term.registerCharacterJoiner(rtlRuns);
     term.textarea?.addEventListener("focus", wakeCursor);
+    term.textarea?.addEventListener("compositionstart", () => {
+      composing = true;
+      composeStart = term.textarea?.value.length ?? 0;
+    });
+    term.textarea?.addEventListener("compositionend", () => {
+      composing = false;
+    });
     wakeCursor();
     ro.observe(hostEl);
     refit();
@@ -1133,6 +1173,7 @@ function createPane(host: Id, changed: () => void): Pane {
     },
     renderer: () => (gl ? "webgl" : "dom"),
     connected: () => pid !== null,
+    disconnect,
     pasteText: (text) => pasteRaw(text.replace(CONTROL, "")),
   };
   byEl.set(el, api_);

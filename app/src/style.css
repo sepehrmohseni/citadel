@@ -2494,6 +2494,25 @@ details.advanced[open] summary::before {
   background: var(--bg);
 }
 
+.term-dock {
+  position: relative;
+  flex: none;
+}
+
+.term-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+  padding: 5px 6px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
 .term-key {
   min-width: 0;
   height: 36px;

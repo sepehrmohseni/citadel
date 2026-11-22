@@ -1,4 +1,5 @@
 use tauri::AppHandle;
+use tauri::ipc::Channel;
 
 use crate::error::{AppError, CmdResult};
 
@@ -28,6 +29,7 @@ fn file_name(name: &str) -> CmdResult<String> {
 #[cfg(target_os = "android")]
 mod native {
     use serde::{Deserialize, Serialize};
+    use tauri::ipc::Channel;
     use tauri::{AppHandle, Manager};
 
     use crate::error::{AppError, CmdResult};
@@ -37,6 +39,11 @@ mod native {
     struct KeepAlive<'a> {
         sessions: u32,
         text: &'a str,
+    }
+
+    #[derive(Serialize)]
+    struct Watch {
+        channel: Channel<serde_json::Value>,
     }
 
     #[derive(Serialize)]
@@ -59,6 +66,14 @@ mod native {
         plugin(app)
             .0
             .run_mobile_plugin::<serde_json::Value>("keepAlive", KeepAlive { sessions, text })
+            .map_err(|e| AppError::invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn watch_disconnect(app: &AppHandle, feed: Channel<serde_json::Value>) -> CmdResult<()> {
+        plugin(app)
+            .0
+            .run_mobile_plugin::<serde_json::Value>("watchDisconnect", Watch { channel: feed })
             .map_err(|e| AppError::invalid(e.to_string()))?;
         Ok(())
     }
@@ -87,10 +102,15 @@ mod native {
 #[cfg(not(target_os = "android"))]
 mod native {
     use tauri::AppHandle;
+    use tauri::ipc::Channel;
 
     use crate::error::{AppError, CmdResult};
 
     pub fn keep_alive(_app: &AppHandle, _sessions: u32, _text: &str) -> CmdResult<()> {
+        Ok(())
+    }
+
+    pub fn watch_disconnect(_app: &AppHandle, _feed: Channel<serde_json::Value>) -> CmdResult<()> {
         Ok(())
     }
 
@@ -105,6 +125,11 @@ mod native {
 pub async fn keep_alive(app: AppHandle, sessions: u32, text: String) -> CmdResult<()> {
     let text: String = text.chars().take(MAX_TEXT).collect();
     native::keep_alive(&app, sessions, &text)
+}
+
+#[tauri::command]
+pub async fn watch_disconnect(app: AppHandle, feed: Channel<serde_json::Value>) -> CmdResult<()> {
+    native::watch_disconnect(&app, feed)
 }
 
 #[tauri::command]

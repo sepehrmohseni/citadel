@@ -230,6 +230,7 @@ pub fn run() {
             cmd::misc::links_list,
             cmd::misc::link_reconnect,
             cmd::device::keep_alive,
+            cmd::device::watch_disconnect,
             cmd::device::save_download,
             cmd::audit::vault_audit,
             cmd::audit::recording_save

@@ -250,6 +250,34 @@ export function terminalChord(e: KeyboardEvent, optionIsMeta: boolean): string |
   return null;
 }
 
+function ctrlChar(c: string): string {
+  const code = c.length === 1 ? c.charCodeAt(0) : 0;
+  const lower = code >= 65 && code <= 90 ? code + 32 : code;
+  if (lower >= 97 && lower <= 122) return String.fromCharCode(lower - 96);
+  return CTRL_PUNCT[c] ?? c;
+}
+
+/**
+ * Applies the on-screen Ctrl and Alt keys to terminal input. Android keyboards hold typed letters in a
+ * composition and deliver them as one chunk ("bs" for Ctrl, b, s), so the modifier goes on the first character
+ * typed after arming and the rest passes through. `skip` counts characters that were already being composed
+ * when the key was armed. `used` is false when nothing typed after arming has arrived yet.
+ */
+export function latchInput(d: string, ctrl: boolean, alt: boolean, skip = 0): { out: string; used: boolean } {
+  if (!ctrl && !alt) return { out: d, used: false };
+  const mod = 1 + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+  const csi = /^\x1b(?:\[|O)([A-DHF])$/.exec(d);
+  if (csi) return { out: `\x1b[1;${mod}${csi[1]}`, used: true };
+  const tilde = /^\x1b\[(\d+)~$/.exec(d);
+  if (tilde) return { out: `\x1b[${tilde[1]};${mod}~`, used: true };
+  if (d.startsWith("\x1b")) return { out: d, used: true };
+  const at = Math.max(0, Math.min(skip, d.length));
+  if (at >= d.length) return { out: d, used: false };
+  const first = String.fromCodePoint(d.codePointAt(at) ?? 0);
+  const keyed = ctrl ? ctrlChar(first) : first;
+  return { out: `${d.slice(0, at)}${alt ? "\x1b" : ""}${keyed}${d.slice(at + first.length)}`, used: true };
+}
+
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const modKey = isMac ? "⌘" : "Ctrl";
 

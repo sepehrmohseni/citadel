@@ -75,6 +75,7 @@ const COMMANDS: &[&str] = &[
     "links_list",
     "link_reconnect",
     "keep_alive",
+    "watch_disconnect",
     "save_download",
     "vault_audit",
     "recording_save",
