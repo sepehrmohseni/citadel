@@ -115,7 +115,7 @@ jobs:
           cache-dependency-path: app/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
-          toolchain: stable
+          toolchain: "1.100.0"
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
@@ -175,7 +175,7 @@ jobs:
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
-          toolchain: stable
+          toolchain: "1.100.0"
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
@@ -201,7 +201,8 @@ jobs:
   sign-android:
     name: sign (android)
     needs: android
-    if: ${{ !cancelled() && needs.android.result == 'success' }}
+    # Only release tags get the production signing key; a manual run builds unsigned artifacts.
+    if: ${{ !cancelled() && needs.android.result == 'success' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

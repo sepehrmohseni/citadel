@@ -317,8 +317,9 @@ The Android job signs the APK with a keystore kept in two repository secrets
 | `ANDROID_KEYSTORE_PASSWORD` | its password (store and key share it) |
 
 The key alias must be `citadel`. Without both secrets the Android job fails
-with a message and the desktop installers are still released. To create a
-keystore:
+with a message: the desktop installers are still attached, but the release
+stays a draft until you publish it by hand. Only tag pushes are signed; a manual
+run of the workflow builds unsigned artifacts. To create a keystore:
 
 ```sh
 keytool -genkeypair -keystore citadel-release.jks -storetype PKCS12 -alias citadel \

@@ -1,0 +1,7 @@
+# Every build uses this one Rust release: local builds, scripts/docker-check.sh, CI and the release
+# workflow. A new compiler or Clippy lint then never changes a build by surprise. Rust has no LTS
+# line, so move this to a newer stable release on purpose, together with RUST_IMAGE in
+# docker/ci/Dockerfile and `toolchain:` in .github/workflows/*.yml. The crates still declare
+# rust-version 1.90 as their minimum.
+[toolchain]
+channel = "1.100.0"

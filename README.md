@@ -142,7 +142,9 @@ is Rust.
 
 Requirements:
 
-- Rust 1.90 or newer (`rustup`).
+- Rust through `rustup`. The release pinned in `rust-toolchain.toml` (1.100.0)
+  is installed automatically on the first build; CI and releases use the same
+  one. The crates themselves need Rust 1.90 or newer.
 - Node.js 20 or newer and pnpm 10.
 - Linux only: WebKitGTK 4.1 and related development packages.
 
@@ -231,6 +233,28 @@ back after a restart.
 On Linux with Xvfb, `app/e2e/ci.sh` sets up a throwaway `sshd` and runs the
 scenarios; CI uploads the screenshots as an artifact.
 
+### Checking in Docker
+
+`scripts/docker-check.sh` runs the same checks as CI (frontend typecheck, unit
+tests and build, `cargo fmt`, `clippy -D warnings`, the workspace tests, the
+OpenSSH suite and the end-to-end scenarios under Xvfb) in a container, on any Linux or macOS machine with Docker, x86_64
+or arm64. Nothing else needs to be installed. The checkout is mounted read-only
+and copied inside the container, so the script never writes to it, and caches
+are kept in Docker volumes so later runs are quick. It uses half of the CPU
+cores so the machine stays usable; set `CITADEL_CI_CPUS` to change that. On
+Linux the GPU (`/dev/dri`) is passed in so the end-to-end run renders with it
+rather than the CPU; `CITADEL_CI_GPU=off` renders in software, as CI does.
+
+```sh
+scripts/docker-check.sh            # everything, like CI
+scripts/docker-check.sh rust       # or: frontend, openssh, e2e, shell
+scripts/docker-check.sh -- cargo test -p citadel-vault
+```
+
+The image is defined in `docker/ci/`. Inside it, WebKit's sandbox is switched
+off for the end-to-end run, because Docker does not allow the user namespaces it
+needs.
+
 `crates/citadel-vault/tests/fixtures` holds a vault, an export and a snapshot
 written by format version 1. Every build must still open them, so a schema or
 storage change that would orphan saved data fails CI instead of reaching users.
@@ -264,6 +288,7 @@ crates/citadel-sync        S3-compatible, WebDAV and Git replication
 crates/citadel-testkit     in-process SSH/SFTP server and OpenSSH harness for tests
 app/                       Tauri v2 application (TypeScript frontend, app/src-tauri)
 docs/                      project site, deployed to GitHub Pages
+docker/ci/                 image for scripts/docker-check.sh, the CI checks in a container
 scripts/                   benchmarks and tooling
 ```
 
