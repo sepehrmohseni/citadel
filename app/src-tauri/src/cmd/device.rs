@@ -58,6 +58,11 @@ mod native {
         location: String,
     }
 
+    #[derive(Deserialize)]
+    struct Fetched {
+        body: String,
+    }
+
     fn plugin(app: &AppHandle) -> tauri::State<'_, Native<tauri::Wry>> {
         app.state::<Native<tauri::Wry>>()
     }
@@ -76,6 +81,14 @@ mod native {
             .run_mobile_plugin::<serde_json::Value>("watchDisconnect", Watch { channel: feed })
             .map_err(|e| AppError::invalid(e.to_string()))?;
         Ok(())
+    }
+
+    pub fn latest_release(app: &AppHandle) -> CmdResult<String> {
+        let got: Fetched = plugin(app)
+            .0
+            .run_mobile_plugin("latestRelease", ())
+            .map_err(|e| AppError::invalid(e.to_string()))?;
+        Ok(got.body)
     }
 
     pub fn save(app: &AppHandle, name: &str, content: &str) -> CmdResult<String> {
@@ -119,6 +132,20 @@ mod native {
             "saving to Downloads is only available on Android",
         ))
     }
+
+    #[cfg_attr(not(mobile), allow(dead_code))]
+    pub fn latest_release(_app: &AppHandle) -> CmdResult<String> {
+        Err(AppError::invalid(
+            "the Android release lookup is only available on Android",
+        ))
+    }
+}
+
+/// GitHub's latest-release JSON, fetched by the Android side (Rust has no certificate verifier set
+/// up there). Blocking.
+#[cfg_attr(not(mobile), allow(dead_code))]
+pub fn latest_release(app: &AppHandle) -> CmdResult<String> {
+    native::latest_release(app)
 }
 
 #[tauri::command]

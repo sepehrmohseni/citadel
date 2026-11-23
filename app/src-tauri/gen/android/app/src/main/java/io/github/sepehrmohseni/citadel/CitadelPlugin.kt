@@ -17,7 +17,12 @@ import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 @InvokeArg
 class KeepAliveArgs {
@@ -65,6 +70,45 @@ class CitadelPlugin(private val activity: Activity) : Plugin(activity) {
     val channel = args.channel
     SessionService.onDisconnect = { channel.send(JSObject()) }
     invoke.resolve()
+  }
+
+  // Looks up the latest release on GitHub with Android's own HTTPS stack, off the main thread.
+  @Command
+  fun latestRelease(invoke: Invoke) {
+    Thread {
+      try {
+        val conn = URL(LATEST_RELEASE).openConnection() as HttpURLConnection
+        try {
+          conn.connectTimeout = 10_000
+          conn.readTimeout = 15_000
+          conn.setRequestProperty("Accept", "application/vnd.github+json")
+          conn.setRequestProperty("User-Agent", "Citadel-Android")
+          val code = conn.responseCode
+          if (code != 200) {
+            invoke.reject("GitHub answered $code")
+          } else {
+            val body = conn.inputStream.use { readCapped(it, MAX_RELEASE_BYTES) }
+            invoke.resolve(JSObject().put("body", body))
+          }
+        } finally {
+          conn.disconnect()
+        }
+      } catch (e: Exception) {
+        invoke.reject(e.message ?: "could not reach GitHub")
+      }
+    }.start()
+  }
+
+  private fun readCapped(input: InputStream, cap: Int): String {
+    val out = ByteArrayOutputStream()
+    val buf = ByteArray(8192)
+    while (true) {
+      val n = input.read(buf)
+      if (n < 0) break
+      if (out.size() + n > cap) throw IOException("the release information is too large")
+      out.write(buf, 0, n)
+    }
+    return out.toString("UTF-8")
   }
 
   @Command
@@ -117,5 +161,7 @@ class CitadelPlugin(private val activity: Activity) : Plugin(activity) {
 
   companion object {
     private const val NOTIFICATIONS_REQUEST = 4101
+    private const val LATEST_RELEASE = "https://api.github.com/repos/sepehrmohseni/citadel/releases/latest"
+    private const val MAX_RELEASE_BYTES = 2 * 1024 * 1024
   }
 }

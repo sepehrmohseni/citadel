@@ -26,6 +26,11 @@ pub struct Prefs {
     pub global_hotkey: String,
     pub restore_tabs: bool,
     pub detect_ports: bool,
+    /// "auto" downloads updates in the background and installs them when Citadel quits,
+    /// "notify" only tells the user, "off" never checks on its own.
+    pub updates: String,
+    /// A version the user chose to skip; automatic checks stay quiet about it.
+    pub skip_version: String,
 }
 
 impl Default for Prefs {
@@ -50,6 +55,8 @@ impl Default for Prefs {
             global_hotkey: "Ctrl+Alt+Space".into(),
             restore_tabs: true,
             detect_ports: true,
+            updates: "auto".into(),
+            skip_version: String::new(),
         }
     }
 }
@@ -68,6 +75,17 @@ impl Prefs {
         self.autolock_minutes = self.autolock_minutes.min(24 * 60);
         if !matches!(self.renderer.as_str(), "auto" | "webgl" | "dom") {
             self.renderer = "auto".into();
+        }
+        if !matches!(self.updates.as_str(), "auto" | "notify" | "off") {
+            self.updates = "auto".into();
+        }
+        if self.skip_version.len() > 32
+            || !self
+                .skip_version
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+        {
+            self.skip_version.clear();
         }
         let printable = |s: &str, max: usize| s.len() <= max && !s.chars().any(char::is_control);
         self.keybindings.retain(|id, chords| {

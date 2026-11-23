@@ -13,6 +13,7 @@ import {
   type SyncBackendInput,
   type SyncReport,
   type SyncTarget,
+  type UpdateState,
 } from "../api";
 import { ago, bytes, clear, debounce, h, icon, kbd, touch } from "../dom";
 import { COMMANDS, bindings, chordOf, conflicts, defaults, getOverrides, isDefault, normalize, onKeymapChange, pretty, suspend } from "../keymap";
@@ -20,6 +21,8 @@ import { fontPicker, stepper } from "../pickers";
 import { go, type Page } from "../shell";
 import { hosts, prefs, refreshAll, updatePrefs } from "../store";
 import { askText, btn, confirmBox, copyText, fail, field, input, modal, segmented, select, toast, toggle } from "../ui";
+import { reportBug } from "../report";
+import { checkForUpdates, describeUpdate, installUpdate, skipVersion, update } from "../updates";
 
 type SectionId = "vault" | "terminal" | "shortcuts" | "agent" | "openssh" | "sync" | "about";
 
@@ -1103,6 +1106,63 @@ function syncSection(): Section {
   return { el };
 }
 
+function updatesCard(): { el: HTMLElement; dispose: () => void } {
+  const status = h("div", { class: "hint", role: "status" });
+  const buttons = h("div", { class: "row", style: { gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" } });
+  const mode = select(
+    [
+      { value: "auto", label: "Install automatically" },
+      { value: "notify", label: "Ask before installing" },
+      { value: "off", label: "Don't check" },
+    ],
+    prefs.get()?.updates ?? "auto",
+  );
+  mode.addEventListener("change", () => {
+    void updatePrefs({ updates: mode.value as Prefs["updates"] })
+      .then(() => render(update.get()))
+      .catch((e) => fail(e));
+  });
+  const render = (s: UpdateState) => {
+    status.textContent = describeUpdate(s);
+    const busy = s.state === "checking" || s.state === "downloading" || s.state === "installing";
+    const list: HTMLElement[] = [];
+    if (s.state === "available") {
+      if (s.install === "manual") list.push(btn("download", { small: true, primary: true, icon: "download", onClick: () => void api.updateOpen().catch((e) => fail(e)) }));
+      else list.push(btn("download and install", { small: true, primary: true, icon: "download", onClick: () => void api.updateDownload().catch((e) => fail(e)) }));
+      if (prefs.get()?.skip_version !== s.version) list.push(btn("skip this version", { small: true, onClick: () => skipVersion(s.version) }));
+    }
+    if (s.state === "ready") {
+      list.push(btn(s.install === "password" ? "install" : "restart and update", { small: true, primary: true, icon: "refresh", onClick: () => void installUpdate() }));
+    }
+    if (s.state === "available" || s.state === "ready") {
+      list.push(btn("release notes", { small: true, onClick: () => void api.openLink("releases").catch((e) => fail(e)) }));
+    }
+    const check = btn("check now", { small: true, icon: "refresh", onClick: () => void checkForUpdates() });
+    check.disabled = busy;
+    list.push(check);
+    buttons.replaceChildren(...list);
+  };
+  const off = update.subscribe(render);
+  const offPrefs = prefs.subscribe(() => render(update.get()), false);
+  const el = card(
+    "Updates",
+    row("Status", null, status),
+    row(
+      "When a new version comes out",
+      "Updates are signed: Citadel only installs files that carry the project's signature, and it never restarts by itself. Linux packages (.deb, .rpm) ask for your password; Android and other copies that cannot replace themselves link to the download.",
+      mode,
+    ),
+    h("div", { class: "set-row" }, buttons),
+  );
+  return {
+    el,
+    dispose: () => {
+      off();
+      offPrefs();
+    },
+  };
+}
+
 function aboutSection(): Section {
   const ver = h("span", { class: "badge accent" }, "…");
   getVersion()
@@ -1121,7 +1181,9 @@ function aboutSection(): Section {
     ["Agent isolation", "Forwarded agent requests are answered by Citadel and expose only the host's assigned key"],
     ["Host keys", "Unknown keys require confirmation; changed keys are flagged as a possible interception"],
     ["Transport", "russh with the ring backend; no OpenSSL or libssh2"],
+    ["Updates", "Signed with the project's update key (minisign); Citadel refuses any update without a valid signature"],
   ];
+  const updates = updatesCard();
   const el = h(
     "div",
     null,
@@ -1130,13 +1192,19 @@ function aboutSection(): Section {
       null,
       row("Citadel", "Licensed under MIT OR Apache-2.0.", ver),
       row("Source", REPO, btn("open", { small: true, onClick: () => void api.openLink("repo").catch((e) => fail(e)) }), btn("Copy URL", { icon: "copy", small: true, onClick: () => void copyText(REPO, "Repository URL copied") })),
-      row("Releases", "Installers for Windows, macOS and Linux.", btn("open", { small: true, onClick: () => void api.openLink("releases").catch((e) => fail(e)) })),
+      row("Releases", "Installers for Windows, macOS, Linux and Android.", btn("open", { small: true, onClick: () => void api.openLink("releases").catch((e) => fail(e)) })),
       row("Author", "Sepehr Mohseni", btn("sepehrmohseni.com", { small: true, onClick: () => void api.openLink("author").catch((e) => fail(e)) })),
-      row("Report a problem", "Security issues go through GitHub Security Advisories, never public issues.", btn("issues", { small: true, onClick: () => void api.openLink("issues").catch((e) => fail(e)) })),
+      row(
+        "Report a bug",
+        "Writes your report straight into a new GitHub issue. Security problems go through GitHub Security Advisories, never public issues.",
+        btn("report a bug", { small: true, icon: "edit", onClick: () => void reportBug() }),
+        btn("open issues", { small: true, onClick: () => void api.openLink("issues").catch((e) => fail(e)) }),
+      ),
     ),
+    updates.el,
     card("Security model", h("table", { class: "spec-table" }, h("tbody", null, specs.map(([k, v]) => h("tr", null, h("td", null, k), h("td", null, v)))))),
   );
-  return { el };
+  return { el, dispose: updates.dispose };
 }
 
 function recordChord(title: string, opts: { global?: boolean; except?: string } = {}): Promise<string | null> {

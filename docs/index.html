@@ -526,6 +526,9 @@ AAAAAAAAAAEAAAAzAAAAC3NzaC1lZDI1…
         <div><dt>broadcast</dt><dd>Type into a chosen set of terminals at once.</dd></div>
         <div><dt>recording</dt><dd>asciicast v2. Output and resizes only, never keystrokes.</dd></div>
         <div><dt>identities</dt><dd>One identity per host. Only that key is offered, and only that key is visible through agent forwarding.</dd></div>
+        <div><dt>updates</dt><dd>Signed updates download in the background and install when you quit or restart. Citadel never restarts by itself and refuses any file without the project's signature. The check asks GitHub for public release information and sends nothing about you; it can be turned off.</dd></div>
+        <div><dt>android</dt><dd>A phone layout with a key row for Esc, Tab, Ctrl, Alt and arrows, a letter row for Ctrl and Alt combinations, and a notification that keeps sessions connected in the background, with a Disconnect button.</dd></div>
+        <div><dt>bug reports</dt><dd>Settings › About writes your report straight into a new GitHub issue, with the version and system filled in if you want. You review it and press Submit.</dd></div>
       </dl>
       <div class="stack">
         <figure>
@@ -554,7 +557,7 @@ AAAAAAAAAAEAAAAzAAAAC3NzaC1lZDI1…
   <div class="wrap closing-in">
     <div>
       <h2 id="h-closing">Pre-1.0, and honest about it.</h2>
-      <p>File formats are versioned and may change before 1.0. Every build must still open vaults written by format version 1, or CI fails. Linux, macOS and Windows bundles ship with each release, alongside a <code>SHA256SUMS</code> file.</p>
+      <p>File formats are versioned and may change before 1.0. Every build must still open vaults written by format version 1, or CI fails. Linux, macOS, Windows and Android builds ship with each release, alongside a <code>SHA256SUMS</code> file, and installed copies update themselves from signed releases. Found a bug? Report it from Settings › About, or on <a href="https://github.com/sepehrmohseni/citadel/issues">GitHub</a>.</p>
     </div>
     <div class="acts">
       <a class="btn primary" href="#install">install</a>

@@ -21,5 +21,7 @@ irm https://sepehrmohseni.github.io/citadel/install.ps1 | iex
 
 **Android:** open the APK on the phone and allow installs from your browser when Android asks. The APK is signed with the project key; its certificate SHA-256 is `73d60e8e634f8139367d2a93c43979735391c675a0c3c3f6fc646869b3c8967a`.
 
+**Updating:** Citadel 0.1.7 and later find new releases by themselves. Desktop installs download the update in the background and install it when you quit or restart (Linux packages ask for your password); Android links to the new APK. Every update is checked against the project's update signature. Older versions need this download once.
+
 Every file is listed in `SHA256SUMS`. Desktop builds are not code-signed yet, so Windows and macOS warn on first launch; [INSTALL.md](https://github.com/sepehrmohseni/citadel/blob/master/docs/INSTALL.md) explains what to click and how to verify a download.
 

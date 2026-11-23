@@ -8,6 +8,7 @@ mod mobile;
 mod plan;
 mod prefs;
 mod safety;
+mod updates;
 
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ use tauri::{Manager, RunEvent};
 use crate::cmd::AppState;
 use crate::core::{Core, Dirs};
 use crate::prefs::Prefs;
+use crate::updates::Updates;
 
 #[cfg(unix)]
 #[allow(unsafe_code)]
@@ -108,6 +110,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(err) = status.error {
         tracing::warn!("global shortcut {chord} unavailable: {err}");
     }
+    let updates = Updates::new(app.handle().clone());
+    updates::schedule(updates.clone(), core.clone());
+    app.manage(updates);
     app.manage(AppState(core));
     Ok(())
 }
@@ -129,11 +134,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(mobile::plugin());
     #[cfg(desktop)]
-    let builder = builder.plugin(
-        tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(hotkey::handler)
-            .build(),
-    );
+    let builder = builder
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(hotkey::handler)
+                .build(),
+        )
+        .plugin(tauri_plugin_updater::Builder::new().build());
     let built = builder
         .setup(setup)
         .on_page_load(|webview, payload| {
@@ -231,6 +238,13 @@ pub fn run() {
             cmd::misc::link_reconnect,
             cmd::device::keep_alive,
             cmd::device::watch_disconnect,
+            cmd::report::support_info,
+            cmd::report::issue_open,
+            updates::update_status,
+            updates::update_check,
+            updates::update_download,
+            updates::update_install,
+            updates::update_open,
             cmd::device::save_download,
             cmd::audit::vault_audit,
             cmd::audit::recording_save
@@ -248,6 +262,9 @@ pub fn run() {
             && let Some(state) = handle.try_state::<AppState>()
         {
             state.0.shutdown();
+            if let Some(updates) = handle.try_state::<Arc<Updates>>() {
+                updates.install_on_exit();
+            }
         }
     });
 }

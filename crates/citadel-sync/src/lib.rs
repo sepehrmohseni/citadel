@@ -15,6 +15,7 @@ use secrecy::SecretString;
 use serde::Serialize;
 
 pub use error::{Result, SyncError};
+pub use http::fetch;
 
 pub type Version = String;
 

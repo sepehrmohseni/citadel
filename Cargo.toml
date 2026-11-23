@@ -61,6 +61,7 @@ tauri-plugin-dialog = "2.8"
 tauri-plugin-clipboard-manager = "=2.4.1"
 tauri-plugin-global-shortcut = "=2.3.2"
 tauri-plugin-opener = "=2.7.0"
+tauri-plugin-updater = "=2.14.1"
 fontdb = "0.24"
 
 [workspace.lints.rust]

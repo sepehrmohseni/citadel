@@ -142,6 +142,11 @@ function syncKeepAlive(): void {
   });
 }
 
+/** How many terminals have a live shell, for warnings before Citadel restarts. */
+export function connectedSessions(): number {
+  return [...live.values()].filter((p) => p.connected()).length;
+}
+
 /** Lets the Disconnect button on Android's session notification close every session. */
 export function watchSessionNotification(): void {
   if (!ANDROID) return;

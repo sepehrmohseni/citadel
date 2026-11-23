@@ -8,6 +8,7 @@ pub mod hosts;
 pub mod misc;
 pub mod pick;
 pub mod ports;
+pub mod report;
 pub mod session;
 pub mod sync;
 pub mod telemetry;

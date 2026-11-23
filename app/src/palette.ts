@@ -4,6 +4,8 @@ import { focusTab, go, listTabs, openFiles, openTerminal } from "./shell";
 import { hosts, refreshHosts, snippets } from "./store";
 import { parseSsh } from "./target";
 import { visibleTerminal, sendText } from "./terminal";
+import { reportBug } from "./report";
+import { checkForUpdates } from "./updates";
 import { fail, toast } from "./ui";
 import { hostForm } from "./views/hosts";
 import { openSettings } from "./views/settings";
@@ -85,6 +87,8 @@ function items(): Item[] {
     { group: "Actions", title: "Settings", icon: "settings", keywords: "preferences sync export import", run: () => go("settings") },
     { group: "Actions", title: "Hosts", icon: "hosts", run: () => go("hosts") },
     { group: "Actions", title: "Lock vault", icon: "lock", keywords: "lock secure", run: () => api.vaultLock() },
+    { group: "Actions", title: "Check for updates", icon: "refresh", keywords: "update upgrade new version release", run: () => void checkForUpdates() },
+    { group: "Actions", title: "Report a bug", icon: "edit", keywords: "bug issue problem feedback github", run: () => void reportBug() },
   ];
   out.push(...actions);
   return out;

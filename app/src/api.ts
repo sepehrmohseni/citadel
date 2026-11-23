@@ -277,6 +277,28 @@ export interface Prefs {
   global_hotkey: string;
   restore_tabs: boolean;
   detect_ports: boolean;
+  updates: "auto" | "notify" | "off";
+  skip_version: string;
+}
+
+/** How an update gets installed: by Citadel on restart, through the system password prompt, or by hand. */
+export type UpdateInstall = "restart" | "password" | "manual";
+
+export type UpdateState =
+  | { state: "idle" }
+  | { state: "checking" }
+  | { state: "up_to_date"; checked_ms: number }
+  | { state: "available"; version: string; notes: string; url: string; install: UpdateInstall }
+  | { state: "downloading"; version: string; done: number; total: number | null }
+  | { state: "ready"; version: string; notes: string; url: string; install: UpdateInstall }
+  | { state: "installing"; version: string }
+  | { state: "failed"; error: string; checked_ms: number };
+
+export interface SupportInfo {
+  version: string;
+  os: string;
+  arch: string;
+  package: string;
 }
 
 export interface FileFilter {
@@ -490,6 +512,13 @@ export const api = {
     invoke<number>("pty_open", { host, cols, rows, data, status }),
   keepAlive: (sessions: number, text: string) => invoke<void>("keep_alive", { sessions, text }),
   watchDisconnect: (feed: Channel<unknown>) => invoke<void>("watch_disconnect", { feed }),
+  updateStatus: () => invoke<UpdateState>("update_status"),
+  updateCheck: () => invoke<UpdateState>("update_check"),
+  updateDownload: () => invoke<void>("update_download"),
+  updateInstall: () => invoke<void>("update_install"),
+  updateOpen: () => invoke<void>("update_open"),
+  supportInfo: () => invoke<SupportInfo>("support_info"),
+  issueOpen: (title: string, description: string, details: boolean) => invoke<void>("issue_open", { title, description, details }),
   saveDownload: (name: string, content: string) => invoke<string>("save_download", { name, content }),
   ptyWrite: (pid: number, bytes: Uint8Array) => invoke<void>("pty_write", bytes, { headers: { "x-pty": String(pid) } }),
   ptyAck: (pid: number, bytes: number) => invoke<void>("pty_ack", { pid, bytes }),
@@ -539,6 +568,7 @@ export const api = {
 export const events = {
   vault: (fn: (s: LockState) => void): Promise<UnlistenFn> => listen<LockState>("citadel://vault", (e) => fn(e.payload)),
   link: (fn: (e: LinkEvent) => void): Promise<UnlistenFn> => listen<LinkEvent>("citadel://link", (e) => fn(e.payload)),
+  update: (fn: (s: UpdateState) => void): Promise<UnlistenFn> => listen<UpdateState>("citadel://update", (e) => fn(e.payload)),
   tunnel: (fn: (e: TunnelEvent) => void): Promise<UnlistenFn> =>
     listen<TunnelEvent>("citadel://tunnel", (e) => fn(e.payload)),
   prompt: (fn: (e: PromptEvent) => void): Promise<UnlistenFn> =>

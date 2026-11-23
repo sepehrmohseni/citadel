@@ -12,8 +12,9 @@ system webview, xterm.js with the WebGL renderer, and vanilla TypeScript.
 
 Documentation: <https://sepehrmohseni.github.io/citadel/>
 
-Status: pre-release (0.1.0). File formats are versioned but may change before
-1.0.
+Status: beta. File formats are versioned but may change before 1.0. Installed
+copies update themselves from signed releases (see [Updates](#updates)), and
+bugs can be reported from inside the app.
 
 ## Install
 
@@ -35,10 +36,53 @@ Windows, an Applications bundle on macOS, and a package or AppImage with a
 menu entry on Linux. Manual downloads, uninstalling, unsigned-build warnings
 and signing are covered in [docs/INSTALL.md](docs/INSTALL.md).
 
+Android: download `Citadel_<version>_android.apk` from the
+[latest release](https://github.com/sepehrmohseni/citadel/releases/latest) on
+the phone and open it.
+
+## Updates
+
+Citadel looks for a new release on GitHub shortly after it starts and then
+every six hours. Settings › About › Updates chooses what happens next:
+
+- **Install automatically** (the default): the update downloads in the
+  background and installs when you quit Citadel. A notice offers to restart
+  now instead; Citadel never restarts by itself, and before a restart it says
+  how many connected sessions will close. Tabs come back afterwards.
+- **Ask before installing**: Citadel says a new version is out and downloads
+  it only when you ask.
+- **Don't check**: no automatic checks. "Check now" still works.
+
+Every update is signed with the project's update key, and Citadel refuses any
+file whose signature does not match the public key built into it. Windows
+installers, macOS and the AppImage install without questions. The `.deb` and
+`.rpm` packages ask for your system password, so Citadel downloads them in the
+background and installs when you say so. Android and development builds cannot
+replace themselves: they say that a new version is out and link to the
+download. A version can be skipped from the notice.
+
+The check requests the public release information from GitHub. Nothing about
+you, your machine or your vault is sent; it is the only request Citadel makes
+on its own.
+
+## Reporting bugs
+
+Settings › About › Report a bug (or "Report a bug" in the command palette)
+asks for a title and what happened, and opens a new issue on GitHub with your
+text already filled in, plus the version, operating system and package type if
+you leave that ticked. Review it and press Submit on GitHub. Issues are public:
+leave out passwords, keys and host names. Security problems go through
+[GitHub Security Advisories](SECURITY.md) instead.
+
+Filing the issue without the browser step would need a GitHub token inside the
+app, and anyone could extract that token from the download and misuse it.
+
 ## Features
 
 - Encrypted local vault: Argon2id key derivation, XChaCha20-Poly1305 per
-  record, automatic locking, password changes without re-encryption.
+  record, automatic locking that background work cannot hold off, and password
+  changes that re-encrypt every record under a fresh key and carry over to
+  synced devices.
 - Password-protected export and import in a documented binary format
   (`.ctdl`).
 - Multi-hop jump chains built in memory over `direct-tcpip` channels. Each hop
@@ -118,6 +162,13 @@ and signing are covered in [docs/INSTALL.md](docs/INSTALL.md).
   Ctrl+Shift.
 - Settings are chosen, not typed: installed monospace fonts are listed with a
   live sample, sizes use steppers, and limits use presets.
+- Android: a phone layout with a key row for Esc, Tab, Ctrl, Alt, arrows and
+  function keys. Ctrl and Alt work with the system keyboard, including
+  keyboards that hold a word until it is finished, and show a letter row for
+  one-tap combinations such as `Ctrl+C` or the tmux prefix. Sessions stay
+  connected in the background behind a notification with a Disconnect button.
+- Signed automatic updates and in-app bug reports; see [Updates](#updates) and
+  [Reporting bugs](#reporting-bugs).
 
 ## Specifications
 

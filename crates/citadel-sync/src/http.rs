@@ -40,6 +40,26 @@ pub(crate) fn client() -> Result<Client> {
         .build()?)
 }
 
+/// Fetches a small document over HTTPS with the same TLS setup as sync (the platform's certificate
+/// verifier). The app uses it to look up the latest release.
+pub async fn fetch(url: &str, accept: &str, cap: usize) -> Result<Vec<u8>> {
+    let url = url::Url::parse(url).map_err(|e| SyncError::Config(e.to_string()))?;
+    if url.scheme() != "https" {
+        return Err(SyncError::Config(
+            "only https addresses can be fetched".into(),
+        ));
+    }
+    let resp = client()?
+        .get(url)
+        .header(reqwest::header::ACCEPT, accept)
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Err(failure(resp).await);
+    }
+    body(resp, cap).await
+}
+
 pub(crate) fn check_scheme(url: &url::Url) -> Result<()> {
     match url.scheme() {
         "https" | "http" if url.host_str().is_some() => Ok(()),

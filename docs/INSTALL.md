@@ -165,8 +165,37 @@ The `SHA-256 digest` must be
 
 On phones the navigation moves to a bottom bar and terminals get a key row
 with Esc, Tab, Ctrl, Alt, arrows and common symbols. Ctrl and Alt apply to the
-next key typed on the on-screen keyboard. The global show/hide shortcut is a
-desktop feature and is not available on Android.
+next key typed on the on-screen keyboard, and while one of them is on a letter
+row offers one-tap combinations such as `Ctrl+C` or the tmux prefix `Ctrl+B`.
+Connected sessions stay up in the background behind a notification; its
+Disconnect button closes them all. The global show/hide shortcut is a desktop
+feature and is not available on Android.
+
+Android cannot replace the app by itself: when a new release is out, Citadel
+shows a notice that opens the new APK, and installing it keeps the vault.
+Choosing files from the phone's storage is not supported yet; Citadel says so
+instead of doing nothing.
+
+## Updates
+
+Citadel checks GitHub for a new release shortly after it starts and every six
+hours, and Settings › About › Updates picks what happens: install
+automatically (the default), ask before installing, or don't check. Every
+update file is signed with the project's update key and verified against the
+public key built into Citadel before anything is installed. Citadel never
+restarts by itself.
+
+| Installed from | What happens |
+| --- | --- |
+| Windows `-setup.exe` or `.msi` | Downloads in the background and installs when you quit or restart (a short progress window, no questions). |
+| macOS `.dmg` | Downloads in the background; the app is replaced when you quit or restart. |
+| Linux `.AppImage` | Downloads in the background; the AppImage file is replaced when you quit or restart. |
+| Linux `.deb` / `.rpm` | Downloads in the background, then asks; installing prompts for your system password. |
+| Android `.apk`, development builds | A notice links to the new download. |
+
+The check requests the public release information from GitHub and sends
+nothing about you or your vault. If a release was published without update
+signatures, installed copies are still told about it and link to the download.
 
 ## Manual downloads
 
@@ -261,7 +290,9 @@ The workflow creates a draft release (or reuses an existing draft for the same
 tag, and refuses to touch a published one). The build jobs run with read-only
 repository access and never see the release token or the signing key. The APK
 is built unsigned and signed in a separate job that runs no build code and
-checks the result against the release certificate. A final publish job, which
+checks the result against the release certificate. Another job of the same
+kind signs the finished installers with the update key and writes
+`latest.json`, the manifest Citadel's updater reads. A final publish job, which
 also runs no build code, computes `SHA256SUMS` from the files CI produced and
 attaches everything, then publishes the release. If the APK could not be
 built or signed, the release stays a draft so it never goes public without it.
@@ -274,8 +305,9 @@ found".
 | --- | --- |
 | ubuntu-22.04 | `.deb`, `.rpm`, `.AppImage` |
 | windows-latest | `-setup.exe` (NSIS), `.msi` |
-| macos-latest | `_universal.dmg` |
+| macos-latest | `_universal.dmg`, `_universal.app.tar.gz` (for the updater) |
 | ubuntu-24.04 | `_android.apk`, signed |
+| ubuntu-24.04 | a `.sig` file per installer and `latest.json` |
 
 Ubuntu 22.04 is used so the Linux binaries link against an older glibc and run
 on more distributions.
@@ -330,6 +362,31 @@ base64 -w0 citadel-release.jks > citadel-release.jks.base64
 Keep the keystore and password backed up offline. Android only installs an
 update over an existing install when it is signed with the same key, so losing
 it means users must uninstall (and lose local data) to move to a new key.
+
+### Update signing key
+
+Installed copies only accept updates signed with the update key whose public
+half is in `app/src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The
+`sign updates` job signs with two repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | the contents of the private key file |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | its password |
+
+Without them the release still publishes, with a warning, but has no
+`latest.json`: installed copies are told about the new version and link to the
+download instead of installing it. To create a key pair (in `app/`):
+
+```sh
+pnpm tauri signer generate -w ~/.config/citadel-release/updater.key
+```
+
+Put the `.pub` file's contents in `plugins.updater.pubkey` and the private key
+and password in the secrets. Back up the private key and password offline:
+copies of Citadel only trust the key built into them, so a lost key means
+users install the next version by hand once, after which they trust the new
+key.
 
 ## Adding code signing later
 
