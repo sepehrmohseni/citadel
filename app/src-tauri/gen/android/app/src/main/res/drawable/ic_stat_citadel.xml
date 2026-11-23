@@ -1,3 +1,5 @@
+<!-- The Citadel castle from the app icon (three merlons, a window slit and an arched gate) as the
+     white silhouette Android expects for notification icons. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -5,5 +7,6 @@
     android:viewportHeight="24">
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M5,3H7V5H9V3H11V5H13V3H15V5H17V3H19V9L17,11V21H14V17A2,2 0,0 0,10 17V21H7V11L5,9Z" />
+        android:fillType="evenOdd"
+        android:pathData="M3,3H6.6V6.6H10.2V3H13.8V6.6H17.4V3H21V21H13.6V16.5A1.6,1.6 0,0 0,10.4 16.5V21H3Z M11.3,9.1H12.7V12H11.3Z" />
 </vector>
