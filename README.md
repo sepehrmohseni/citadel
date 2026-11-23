@@ -1,20 +1,46 @@
 # Citadel
 
-Citadel is a desktop SSH client, tunnel manager and SFTP browser built around
-a local encrypted vault. Hosts, keys, tunnels and trusted host keys are stored
-in a single file encrypted with a key derived from your password. Nothing is
-sent to a Citadel service; there is no Citadel service. Optional replication
+**Your servers, keys and tunnels in one encrypted file, on your machine.**
+Citadel is a free, open-source SSH client, tunnel manager and SFTP browser for
+Windows, macOS, Linux and Android. No account, no cloud, no telemetry.
+
+[![Latest release](https://img.shields.io/github/v/release/sepehrmohseni/citadel?label=release)](https://github.com/sepehrmohseni/citadel/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/sepehrmohseni/citadel/total)](https://github.com/sepehrmohseni/citadel/releases)
+[![CI](https://github.com/sepehrmohseni/citadel/actions/workflows/ci.yml/badge.svg)](https://github.com/sepehrmohseni/citadel/actions/workflows/ci.yml)
+[![License: MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%20or%20Apache--2.0-blue)](#license)
+
+**[Download](https://github.com/sepehrmohseni/citadel/releases/latest)** ·
+[Website](https://sepehrmohseni.github.io/citadel/) ·
+[Install guide](docs/INSTALL.md) ·
+[Report a bug](https://github.com/sepehrmohseni/citadel/issues/new?labels=bug)
+
+![Citadel's hosts list: a workspace with a host, its address, the key it uses, its route and a round trip under 1 ms, with keyboard hints along the filter field.](docs/assets/shot-hosts.webp)
+
+## Why Citadel
+
+- **One encrypted file, nothing shared.** Hosts, keys, tunnels and trusted host
+  keys live in a vault encrypted with your password (Argon2id and
+  XChaCha20-Poly1305). There is no Citadel server to sign up for or trust.
+- **Bastions and tunnels that keep working.** Multi-hop jump chains, local,
+  remote and SOCKS forwards that come back on their own after a dropped
+  connection, and a port detector that forwards a new dev server in one click.
+- **One command, every host.** Fleet run executes a command on many servers at
+  once and groups identical output, failures first.
+- **SSH keys other clients reject.** OpenSSH, PuTTY `.ppk`, PKCS#8 and pasted
+  keys with broken line endings, agents including 1Password and Bitwarden, and
+  legacy appliances when you switch them on.
+- **Every keyboard and language.** Shortcuts and `Ctrl` keys work on any layout,
+  and Persian, Arabic and Hebrew render right to left in the terminal.
+- **Stays up to date, safely.** Signed updates install when you quit, and bugs
+  are reported to GitHub from inside the app.
+
+Citadel is in beta. File formats are versioned, and every build must still
+open vaults written by the first release. Optional sync
 uses storage you control: an S3-compatible bucket, a WebDAV share or a Git
 repository.
 
 The core is written in Rust. The interface is a Tauri v2 application using the
 system webview, xterm.js with the WebGL renderer, and vanilla TypeScript.
-
-Documentation: <https://sepehrmohseni.github.io/citadel/>
-
-Status: beta. File formats are versioned but may change before 1.0. Installed
-copies update themselves from signed releases (see [Updates](#updates)), and
-bugs can be reported from inside the app.
 
 ## Install
 
@@ -35,6 +61,27 @@ The scripts fetch the latest release, verify it against the release's
 Windows, an Applications bundle on macOS, and a package or AppImage with a
 menu entry on Linux. Manual downloads, uninstalling, unsigned-build warnings
 and signing are covered in [docs/INSTALL.md](docs/INSTALL.md).
+
+Or download the installer yourself from the
+[latest release](https://github.com/sepehrmohseni/citadel/releases/latest):
+
+| Platform | File |
+| --- | --- |
+| Windows 10 and 11 | `Citadel_<version>_x64-setup.exe` |
+| macOS 11 or later (Apple Silicon and Intel) | `Citadel_<version>_universal.dmg` |
+| Ubuntu, Debian | `Citadel_<version>_amd64.deb` |
+| Fedora, RHEL, openSUSE | `Citadel-<version>-1.x86_64.rpm` |
+| Any Linux | `Citadel_<version>_amd64.AppImage` |
+| Android 7 or later | `Citadel_<version>_android.apk` |
+
+The installers are not code-signed yet, so the first launch asks once:
+
+- **Windows:** "Windows protected your PC" → **More info** → **Run anyway**.
+- **macOS:** System Settings → Privacy & Security → **Open Anyway** (on macOS 14
+  and earlier, Control-click the app and choose **Open**).
+- **Android:** allow installs from your browser when Android asks.
+
+The install scripts above avoid the Windows and macOS prompts.
 
 Android: download `Citadel_<version>_android.apk` from the
 [latest release](https://github.com/sepehrmohseni/citadel/releases/latest) on

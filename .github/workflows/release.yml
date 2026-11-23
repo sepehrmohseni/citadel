@@ -189,7 +189,19 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build unsigned APK
         working-directory: app
-        run: pnpm tauri android build --apk --target aarch64 armv7 x86_64 -- --locked
+        # Maven Central sometimes turns GitHub's shared runners away (HTTP 429) while Gradle
+        # fetches its plugins; wait and try again instead of failing the release.
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm tauri android build --apk --target aarch64 armv7 x86_64 -- --locked; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Android build attempt $attempt failed; retrying in $((attempt * 90)) s"
+              sleep $((attempt * 90))
+            fi
+          done
+          exit 1
       - name: Collect unsigned APK
         run: |
           mkdir -p unsigned

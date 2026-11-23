@@ -785,6 +785,31 @@ kbd {
   min-width: 82px;
 }
 
+.install-dl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line-2);
+  font-size: 13px;
+}
+
+.install-dl .dl-alt {
+  display: inline-flex;
+  gap: 14px;
+}
+
+.install-dl .dl-alt:empty {
+  display: none;
+}
+
+.install-dl .dl-meta {
+  margin-left: auto;
+  color: var(--fg-3);
+  font-size: 12.5px;
+}
+
 .install-f {
   display: flex;
   flex-wrap: wrap;

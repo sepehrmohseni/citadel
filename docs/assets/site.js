@@ -56,6 +56,71 @@
     var copyLog = $("[data-copylog]");
     var os = detectOS();
     var timer = 0;
+    var dl = $("[data-download]");
+    var dlAlt = $("[data-download-alt]");
+    var dlMeta = $("[data-download-meta]");
+    var release = null;
+    var shown = os;
+    var LATEST = "https://github.com/sepehrmohseni/citadel/releases/latest";
+    var OURS = "https://github.com/sepehrmohseni/citadel/releases/download/";
+    // The main file for each system, then other formats worth offering.
+    var FILES = {
+      windows: [/_x64-setup\.exe$/, [[/_x64_[^_]+\.msi$/, ".msi"]]],
+      macos: [/_universal\.dmg$/, []],
+      linux: [/_amd64\.AppImage$/, [[/_amd64\.deb$/, ".deb"], [/\.x86_64\.rpm$/, ".rpm"]]],
+      android: [/_android\.apk$/, []],
+    };
+
+    function asset(re) {
+      if (!release) return null;
+      return release.assets.filter(function (a) {
+        return re.test(a.name) && a.browser_download_url.indexOf(OURS) === 0;
+      })[0] || null;
+    }
+
+    function megabytes(n) {
+      return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
+    }
+
+    function paintDownload(name) {
+      if (!dl) return;
+      shown = name;
+      var files = FILES[name] || FILES.linux;
+      var main = asset(files[0]);
+      dlAlt.textContent = "";
+      if (!main) {
+        dl.href = LATEST;
+        dl.textContent = "download for " + name;
+        dlMeta.textContent = "free · open source · no account";
+        return;
+      }
+      dl.href = main.browser_download_url;
+      dl.textContent = "download " + release.tag_name + " for " + name;
+      files[1].forEach(function (pair) {
+        var other = asset(pair[0]);
+        if (!other) return;
+        var a = doc.createElement("a");
+        a.className = "arrow-link";
+        a.href = other.browser_download_url;
+        a.textContent = pair[1];
+        dlAlt.appendChild(a);
+      });
+      dlMeta.textContent = megabytes(main.size) + " · free · open source · no account";
+    }
+
+    if (dl && window.fetch) {
+      fetch("https://api.github.com/repos/sepehrmohseni/citadel/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .then(function (r) {
+          if (r && r.tag_name && Array.isArray(r.assets)) {
+            release = r;
+            paintDownload(shown);
+          }
+        })
+        .catch(function () {});
+    }
 
     function select(name, focus) {
       tabs.forEach(function (b) {
@@ -67,6 +132,7 @@
       panels.forEach(function (p) {
         p.hidden = p.getAttribute("data-panel") !== name;
       });
+      paintDownload(name);
       if (script) {
         script.href = name === "windows" ? "install.ps1" : name === "android" ? "https://github.com/sepehrmohseni/citadel/blob/master/docs/INSTALL.md#android" : "install.sh";
         script.textContent = name === "android" ? "install guide" : "read the script";
