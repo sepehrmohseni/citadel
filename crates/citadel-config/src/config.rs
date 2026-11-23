@@ -40,6 +40,16 @@ enum Key {
     DynamicForward,
 }
 
+/// The keys Citadel owns when it writes a host it manages; everything else in a block is the
+/// user's and is left alone.
+const MANAGED: [(Key, &str); 5] = [
+    (Key::HostName, "HostName"),
+    (Key::User, "User"),
+    (Key::Port, "Port"),
+    (Key::ProxyJump, "ProxyJump"),
+    (Key::ForwardAgent, "ForwardAgent"),
+];
+
 const KEYS: [(Key, &str); 11] = [
     (Key::HostName, "HostName"),
     (Key::User, "User"),
@@ -339,15 +349,26 @@ impl SshConfig {
     }
 
     pub fn upsert(&mut self, host: &SshHost) {
+        self.upsert_keys(host, &KEYS);
+    }
+
+    /// Writes only HostName, User, Port, ProxyJump and ForwardAgent, so values `host` inherited
+    /// from `Host *` or other blocks are never copied into its own block, and the user's other
+    /// directives stay as they are.
+    pub fn upsert_managed(&mut self, host: &SshHost) {
+        self.upsert_keys(host, &MANAGED);
+    }
+
+    fn upsert_keys(&mut self, host: &SshHost, keys: &[(Key, &str)]) {
         let eol = self.eol();
         match self.find_block(&host.alias) {
-            Some(hdr) => self.patch(hdr, host, &eol),
-            None => self.insert_block(host, &eol),
+            Some(hdr) => self.patch(hdr, host, &eol, keys),
+            None => self.insert_block(host, &eol, keys),
         }
         self.seal(&eol);
     }
 
-    fn patch(&mut self, hdr: usize, host: &SshHost, eol: &str) {
+    fn patch(&mut self, hdr: usize, host: &SshHost, eol: &str, keys: &[(Key, &str)]) {
         let end = self.block_end(hdr);
         let body: Vec<Line> = self.lines[hdr + 1..end].to_vec();
         let mut current = SshHost::default();
@@ -355,7 +376,7 @@ impl SshConfig {
         for d in body.iter().filter_map(Line::directive) {
             apply(&mut current, &mut seen, &d.key, &d.args);
         }
-        let mut pending: Vec<(Key, &str, std::collections::VecDeque<String>)> = KEYS
+        let mut pending: Vec<(Key, &str, std::collections::VecDeque<String>)> = keys
             .iter()
             .filter(|(k, _)| k.values(&current) != k.values(host))
             .map(|(k, name)| (*k, *name, k.values(host).into()))
@@ -416,14 +437,14 @@ impl SshConfig {
         self.lines.splice(hdr + 1..end, out);
     }
 
-    fn insert_block(&mut self, host: &SshHost, eol: &str) {
+    fn insert_block(&mut self, host: &SshHost, eol: &str, keys: &[(Key, &str)]) {
         let pos = self.insertion_point(&host.alias);
         let mut chunk = Vec::new();
         if pos > 0 && !self.lines[pos - 1].is_blank() {
             chunk.push(Line::new(String::new(), eol));
         }
         chunk.push(Line::new(format!("Host {}", quote(&host.alias)), eol));
-        for (k, name) in KEYS {
+        for (k, name) in keys {
             for v in k.values(host) {
                 chunk.push(Line::new(
                     format!("{DEFAULT_INDENT}{name} {}", k.render(&v)),

@@ -53,20 +53,35 @@ pub async fn sync_target_save(
                 secret_key,
                 path_style,
             } => {
+                let endpoint = required("endpoint", &endpoint)?;
+                let access_key = required("access key", &access_key)?;
                 let secret = match (
                     secret_key.filter(|s| !s.is_empty()),
                     existing.as_ref().map(|e| &e.backend),
                 ) {
                     (Some(s), _) => secret_from(s),
-                    (None, Some(SyncBackend::S3 { secret_key, .. })) => secret_key.clone(),
+                    (
+                        None,
+                        Some(SyncBackend::S3 {
+                            endpoint: was_endpoint,
+                            access_key: was_key,
+                            secret_key,
+                            ..
+                        }),
+                    ) if *was_endpoint == endpoint && *was_key == access_key => secret_key.clone(),
+                    (None, Some(SyncBackend::S3 { .. })) => {
+                        return Err(AppError::invalid(
+                            "enter the secret key again: the endpoint or access key changed",
+                        ));
+                    }
                     (None, _) => return Err(AppError::invalid("secret key is required")),
                 };
                 SyncBackend::S3 {
-                    endpoint: required("endpoint", &endpoint)?,
+                    endpoint,
                     region: required("region", &region)?,
                     bucket: required("bucket", &bucket)?,
                     object: required("object key", &object)?,
-                    access_key: required("access key", &access_key)?,
+                    access_key,
                     secret_key: secret,
                     path_style,
                 }
@@ -76,17 +91,31 @@ pub async fn sync_target_save(
                 user,
                 password,
             } => {
+                let url = required("url", &url)?;
+                let user = required("user", &user)?;
                 let pw = match (
                     password.filter(|s| !s.is_empty()),
                     existing.as_ref().map(|e| &e.backend),
                 ) {
                     (Some(s), _) => secret_from(s),
-                    (None, Some(SyncBackend::WebDav { password, .. })) => password.clone(),
+                    (
+                        None,
+                        Some(SyncBackend::WebDav {
+                            url: was_url,
+                            user: was_user,
+                            password,
+                        }),
+                    ) if *was_url == url && *was_user == user => password.clone(),
+                    (None, Some(SyncBackend::WebDav { .. })) => {
+                        return Err(AppError::invalid(
+                            "enter the password again: the URL or user changed",
+                        ));
+                    }
                     (None, _) => return Err(AppError::invalid("password is required")),
                 };
                 SyncBackend::WebDav {
-                    url: required("url", &url)?,
-                    user: required("user", &user)?,
+                    url,
+                    user,
                     password: pw,
                 }
             }
@@ -94,11 +123,21 @@ pub async fn sync_target_save(
                 remote,
                 branch,
                 path,
-            } => SyncBackend::Git {
-                remote: required("remote", &remote)?,
-                branch: required("branch", &branch)?,
-                path: required("path", &path)?,
-            },
+            } => {
+                let mut remote = required("remote", &remote)?;
+                // The view hides a token in the remote; getting that back means "unchanged".
+                if let Some(SyncBackend::Git { remote: was, .. }) =
+                    existing.as_ref().map(|e| &e.backend)
+                    && remote == crate::dto::hide_password(was)
+                {
+                    remote.clone_from(was);
+                }
+                SyncBackend::Git {
+                    remote,
+                    branch: required("branch", &branch)?,
+                    path: required("path", &path)?,
+                }
+            }
         };
         let mut target = match existing {
             Some(mut t) => {

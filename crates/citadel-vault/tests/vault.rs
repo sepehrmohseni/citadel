@@ -330,6 +330,30 @@ fn password_change_propagates_through_sync() -> Res {
 }
 
 #[test]
+fn own_copy_from_before_a_password_change_merges_without_reverting_it() -> Res {
+    let dir = TempDir::new()?;
+    let a = fresh(&dir, "a.redb", "old")?;
+    a.put(&mut host("web")?)?;
+    let stale = a.sync_blob()?;
+    a.change_password(&pw("old"), &pw("new"), FAST)?;
+    assert!(matches!(
+        a.absorb(&stale, None),
+        Err(VaultError::ForeignKey)
+    ));
+    assert!(matches!(
+        a.absorb(&stale, Some(&pw("new"))),
+        Err(VaultError::BadPassword)
+    ));
+    let got = a.absorb(&stale, Some(&pw("old")))?;
+    assert!(!got.rekeyed && !got.header_adopted);
+    assert_eq!(a.list::<HostProfile>()?.len(), 1);
+    a.lock();
+    assert!(matches!(a.unlock(&pw("old")), Err(VaultError::BadPassword)));
+    a.unlock(&pw("new"))?;
+    Ok(())
+}
+
+#[test]
 fn kdf_bounds_rejected() -> Res {
     let dir = TempDir::new()?;
     let v = Vault::open(dir.path().join("v.redb"))?;
@@ -435,6 +459,8 @@ fn unreadable_records_are_skipped_not_fatal() -> Res {
     let health = v.health()?;
     assert_eq!((health.records, health.unreadable), (1, 1));
     assert_eq!(v.entries()?.len(), 1);
+    assert!(matches!(v.replace(&[]), Err(VaultError::Unreadable(1))));
+    assert_eq!(v.list::<HostProfile>()?.len(), 1);
     Ok(())
 }
 

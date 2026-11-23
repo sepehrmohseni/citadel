@@ -20,6 +20,8 @@ const DEPTH: usize = 32;
 const REQUEST_TIMEOUT_SECS: u64 = 120;
 const POSIX_RENAME: &str = "posix-rename@openssh.com";
 const FSYNC: &str = "fsync@openssh.com";
+/// How far a download may grow past the size the server reported before it is stopped.
+const GROWTH_LIMIT: u64 = 64 << 20;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DirEntry {
@@ -84,6 +86,10 @@ fn sibling_tmp(path: &str) -> Result<String> {
         None => ("", path),
     };
     Ok(format!("{dir}.{name}.citadel-{suffix}"))
+}
+
+fn shrank() -> TransportError {
+    TransportError::Io(std::io::Error::other("remote file shrank during transfer"))
 }
 
 fn part_path(local: &Path) -> PathBuf {
@@ -214,7 +220,8 @@ impl Sftp {
             let want = len - u32::try_from(got).unwrap_or(len);
             match self.raw.read(handle, offset + got, want).await {
                 Ok(d) if d.data.is_empty() => break,
-                Ok(d) => buf.extend_from_slice(&d.data),
+                // Never keep more than was asked for, whatever the server sends.
+                Ok(d) => buf.extend_from_slice(&d.data[..d.data.len().min(want as usize)]),
                 Err(e) if is_eof(&e) => break,
                 Err(e) => return Err(e.into()),
             }
@@ -276,9 +283,7 @@ impl Sftp {
         while let Some(span) = spans.next().await {
             let span = span?;
             if short && !span.is_empty() {
-                return Err(TransportError::Io(std::io::Error::other(
-                    "remote file shrank during transfer",
-                )));
+                return Err(shrank());
             }
             short |= span.len() < CHUNK as usize;
             file.write_all(&span).await?;
@@ -293,7 +298,13 @@ impl Sftp {
         }
         drop(spans);
         if !short {
+            let limit = total.saturating_add(GROWTH_LIMIT);
             loop {
+                if done > limit {
+                    return Err(TransportError::Io(std::io::Error::other(format!(
+                        "remote file kept growing past {limit} bytes; stopped the download"
+                    ))));
+                }
                 let span = self.read_span(handle, done, CHUNK).await?;
                 if span.is_empty() {
                     break;
@@ -349,7 +360,32 @@ impl Sftp {
                 .buffered(self.depth)
                 .try_collect()
                 .await?;
-            Ok(spans.concat())
+            let mut data = Vec::new();
+            let mut short = false;
+            for span in spans {
+                if short && !span.is_empty() {
+                    return Err(shrank());
+                }
+                short |= span.len() < CHUNK as usize;
+                data.extend_from_slice(&span);
+            }
+            // The reported size can be missing or stale: read on to the real end of the file,
+            // so the editor never shows (and later saves) a truncated copy.
+            if !short {
+                loop {
+                    if data.len() as u64 > cap {
+                        return Err(TransportError::Io(std::io::Error::other(format!(
+                            "{remote} is larger than the {cap} byte limit"
+                        ))));
+                    }
+                    let span = self.read_span(&handle, data.len() as u64, CHUNK).await?;
+                    if span.is_empty() {
+                        break;
+                    }
+                    data.extend_from_slice(&span);
+                }
+            }
+            Ok(data)
         }
         .await;
         let _ = self.raw.close(handle).await;
@@ -425,8 +461,15 @@ impl Sftp {
             }
         };
         if let Err(e) = self.place(&tmp, remote).await {
-            let _ = self.raw.remove(tmp.as_str()).await;
-            return Err(e);
+            // Without posix-rename the old file is removed before the new one is moved in; if
+            // that second step failed, the temporary copy is the only one left, so keep it.
+            if self.raw.lstat(remote).await.is_ok() {
+                let _ = self.raw.remove(tmp.as_str()).await;
+                return Err(e);
+            }
+            return Err(TransportError::Io(std::io::Error::other(format!(
+                "{e}; the old {remote} was already removed, so the new content was left in {tmp}"
+            ))));
         }
         Ok(n)
     }

@@ -92,15 +92,18 @@ pub fn parse_listeners(output: &str) -> Vec<Listener> {
             continue;
         }
         let scope = scope_of(host);
+        let bare = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split('%')
+            .next()
+            .unwrap_or(host);
         let address = match scope {
-            Scope::Any | Scope::Loopback => "127.0.0.1".to_owned(),
-            Scope::Address => host
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .split('%')
-                .next()
-                .unwrap_or(host)
-                .to_owned(),
+            Scope::Any => "127.0.0.1".to_owned(),
+            Scope::Loopback if bare == "localhost" => "127.0.0.1".to_owned(),
+            // Keep the loopback address the service really listens on (::1, 127.0.0.53):
+            // a forward to 127.0.0.1 would be refused.
+            Scope::Loopback | Scope::Address => bare.to_owned(),
         };
         let (process, pid) = process_of(line);
         let entry = by_port.entry(port).or_insert_with(|| Listener {
@@ -110,7 +113,11 @@ pub fn parse_listeners(output: &str) -> Vec<Listener> {
             process: None,
             pid: None,
         });
-        if scope > entry.scope {
+        let prefer_v4 = scope == Scope::Loopback
+            && entry.scope == Scope::Loopback
+            && entry.address.contains(':')
+            && !address.contains(':');
+        if scope > entry.scope || prefer_v4 {
             entry.scope = scope;
             entry.address = address;
         }
@@ -153,6 +160,17 @@ mod tests {
             (l[4].scope, l[4].process.as_deref()),
             (Scope::Any, Some("caddy"))
         );
+    }
+
+    #[test]
+    fn loopback_listeners_keep_their_real_address() {
+        let l = parse_listeners(
+            "LISTEN 0 511 [::1]:5173 [::]:*\nLISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:*\nLISTEN 0 511 [::1]:3000 [::]:*\nLISTEN 0 511 127.0.0.1:3000 0.0.0.0:*\n",
+        );
+        let addr = |p: u16| l.iter().find(|x| x.port == p).map(|x| x.address.as_str());
+        assert_eq!(addr(5173), Some("::1"));
+        assert_eq!(addr(53), Some("127.0.0.53"));
+        assert_eq!(addr(3000), Some("127.0.0.1"));
     }
 
     #[test]

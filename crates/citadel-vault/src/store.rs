@@ -15,7 +15,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::envelope::{self, Bundle, KeyHeader, Sealed};
+use crate::envelope::{self, Bundle, HEADER_LEN, KeyHeader, Sealed};
 use crate::kdf::KdfParams;
 use crate::model::sealed::Sealed as _;
 use crate::model::{
@@ -29,6 +29,8 @@ type Table = TableDefinition<'static, [u8; 16], &'static [u8]>;
 const META: TableDefinition<'static, &'static str, &'static [u8]> = TableDefinition::new("meta");
 const HEADER_KEY: &str = "header";
 const FORMAT_KEY: &str = "format";
+const RETIRED_KEY: &str = "retired";
+const MAX_RETIRED: usize = 8;
 pub const STORE_FORMAT: u32 = 1;
 const BACKUP_PREFIX: &str = "citadel-";
 const BACKUP_EXT: &str = ".ctdl";
@@ -296,6 +298,23 @@ fn write_header(txn: &WriteTransaction, header: &KeyHeader) -> Result<()> {
     Ok(())
 }
 
+/// Remembers a key header replaced by a password change, so a synced copy still sealed under it
+/// can be recognised as this vault's own older copy rather than a different vault to join.
+fn retire_header(txn: &WriteTransaction, old: &KeyHeader) -> Result<()> {
+    let mut meta = txn.open_table(META)?;
+    let mut list = meta
+        .get(RETIRED_KEY)?
+        .map(|v| v.value().to_vec())
+        .unwrap_or_default();
+    list.extend_from_slice(&old.encode());
+    let keep = MAX_RETIRED * HEADER_LEN;
+    if list.len() > keep {
+        list = list.split_off(list.len() - keep);
+    }
+    meta.insert(RETIRED_KEY, list.as_slice())?;
+    Ok(())
+}
+
 fn wins_tie(local: &Entry, incoming: &Entry) -> bool {
     match (local.is_tombstone(), incoming.is_tombstone()) {
         (true, false) => true,
@@ -372,7 +391,7 @@ impl Vault {
     }
 
     pub fn health(&self) -> Result<Health> {
-        self.with_cipher(|cipher| {
+        self.with_cipher_quiet(|cipher| {
             let mut skipped = Vec::new();
             let snap = self.snapshot_counting(cipher, &mut skipped)?;
             Ok(Health {
@@ -588,6 +607,7 @@ impl Vault {
             store(&txn, &rotated, e)?;
         }
         write_header(&txn, &fresh)?;
+        retire_header(&txn, &header)?;
         txn.commit()?;
         sess.cipher = rotated;
         mark(sess);
@@ -606,20 +626,33 @@ impl Vault {
     }
 
     pub fn get<R: Record>(&self, id: Id) -> Result<Option<R>> {
-        self.with_cipher(|cipher| {
-            let txn = self.db.begin_read()?;
-            let Some(t) = open_ro(&txn, table(R::TABLE))? else {
-                return Ok(None);
-            };
-            let Some(blob) = t.get(id.as_bytes())? else {
-                return Ok(None);
-            };
-            open_record(cipher, *id.as_bytes(), blob.value()).map(Some)
-        })
+        self.with_cipher(|cipher| self.read_one(cipher, id))
+    }
+
+    /// Like [`Vault::get`], but does not count as activity for auto-lock. For background work
+    /// such as redialing a dropped connection.
+    pub fn peek<R: Record>(&self, id: Id) -> Result<Option<R>> {
+        self.with_cipher_quiet(|cipher| self.read_one(cipher, id))
     }
 
     pub fn list<R: Record>(&self) -> Result<Vec<R>> {
         self.with_cipher(|cipher| scan(&self.db.begin_read()?, cipher, &mut Vec::new()))
+    }
+
+    /// Like [`Vault::list`], but does not count as activity for auto-lock.
+    pub fn peek_all<R: Record>(&self) -> Result<Vec<R>> {
+        self.with_cipher_quiet(|cipher| scan(&self.db.begin_read()?, cipher, &mut Vec::new()))
+    }
+
+    fn read_one<R: Record>(&self, cipher: &XChaCha20Poly1305, id: Id) -> Result<Option<R>> {
+        let txn = self.db.begin_read()?;
+        let Some(t) = open_ro(&txn, table(R::TABLE))? else {
+            return Ok(None);
+        };
+        let Some(blob) = t.get(id.as_bytes())? else {
+            return Ok(None);
+        };
+        open_record(cipher, *id.as_bytes(), blob.value()).map(Some)
     }
 
     pub fn remove(&self, id: Id) -> Result<bool> {
@@ -672,7 +705,13 @@ impl Vault {
 
     pub fn replace(&self, entries: &[Entry]) -> Result<MergeReport> {
         self.with_cipher(|cipher| {
-            let before = self.snapshot(cipher)?;
+            // Records this build cannot read (written by a newer Citadel) are in no snapshot or
+            // backup either; wiping them here would lose them for good.
+            let mut skipped = Vec::new();
+            let before = self.snapshot_counting(cipher, &mut skipped)?;
+            if !skipped.is_empty() {
+                return Err(VaultError::Unreadable(skipped.len()));
+            }
             for e in entries {
                 self.observe(e.stamp());
             }
@@ -705,7 +744,7 @@ impl Vault {
     }
 
     pub fn sync_blob(&self) -> Result<Vec<u8>> {
-        self.with_cipher(|cipher| {
+        self.with_cipher_quiet(|cipher| {
             let header = self.header()?;
             let bundle = Bundle {
                 created_ms: self.tick(),
@@ -747,6 +786,17 @@ impl Vault {
         let dek = sealed.header.unwrap_key(password)?;
         let remote = crypto::cipher(&dek);
         let bundle = sealed.open(&remote)?;
+        if self.retired_headers()?.contains(&sealed.header) {
+            // The remote copy is still sealed under a key this vault retired when its password
+            // was changed. Keep the current key: merge the records and let the next push re-seal
+            // the remote copy under it.
+            let report = self.with_cipher(|cipher| self.merge_with(cipher, bundle.entries))?;
+            return Ok(Absorbed {
+                report,
+                rekeyed: false,
+                header_adopted: false,
+            });
+        }
         self.rekey(remote, &sealed.header, bundle.entries)
     }
 
@@ -835,6 +885,14 @@ impl Vault {
         f(&sess.cipher)
     }
 
+    /// Runs `f` with the cipher without resetting the auto-lock idle timer, so background work
+    /// (periodic snapshots, reconnects) cannot keep the vault unlocked forever.
+    fn with_cipher_quiet<T>(&self, f: impl FnOnce(&XChaCha20Poly1305) -> Result<T>) -> Result<T> {
+        let guard = self.guard();
+        let sess = guard.as_ref().ok_or(VaultError::Locked)?;
+        f(&sess.cipher)
+    }
+
     fn install(&self, cipher: XChaCha20Poly1305) {
         if let Ok(header) = self.header() {
             self.observe(header.epoch);
@@ -882,6 +940,26 @@ impl Vault {
 
     fn header(&self) -> Result<KeyHeader> {
         self.read_header()?.ok_or(VaultError::Uninitialized)
+    }
+
+    fn retired_headers(&self) -> Result<Vec<KeyHeader>> {
+        let txn = self.db.begin_read()?;
+        let t = match txn.open_table(META) {
+            Ok(t) => t,
+            Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let Some(raw) = t.get(RETIRED_KEY)? else {
+            return Ok(Vec::new());
+        };
+        let headers: Vec<KeyHeader> = raw
+            .value()
+            .as_chunks::<HEADER_LEN>()
+            .0
+            .iter()
+            .filter_map(|c| KeyHeader::decode(c).ok())
+            .collect();
+        Ok(headers)
     }
 
     fn tick(&self) -> u64 {

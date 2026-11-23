@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use citadel_ssh::{Backoff, Link, LinkHandle, LinkState, PtyWriter, TransportError, Tunnel};
-use citadel_vault::{AutoLock, Id, LockState, Vault};
+use citadel_vault::{AutoLock, Id, LockState, Vault, VaultError};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
@@ -24,6 +24,10 @@ pub const EV_LINK: &str = "citadel://link";
 pub const EV_TUNNEL: &str = "citadel://tunnel";
 pub const EV_PROMPT: &str = "citadel://prompt";
 pub const EV_BANNER: &str = "citadel://banner";
+
+fn credential_error(e: &AppError) -> TransportError {
+    TransportError::Credential(e.to_string())
+}
 
 pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -286,7 +290,7 @@ impl Core {
                     .await;
                     let route = match planned {
                         Ok(Ok(r)) => r,
-                        Ok(Err(e)) => return Err(TransportError::Credential(e.to_string())),
+                        Ok(Err(e)) => return Err(credential_error(&e)),
                         Err(e) => return Err(TransportError::Credential(e.to_string())),
                     };
                     citadel_ssh::connect(&route).await
@@ -343,11 +347,48 @@ impl Core {
         });
     }
 
+    /// Called when a host's connection settings change, so no new session reuses a connection
+    /// made with the old ones. An idle (lingering) connection is closed; one still in use redials
+    /// with the new settings.
+    pub fn reroute(self: &Arc<Self>, host: Id) {
+        let idle = {
+            let mut links = lock(&self.links);
+            match links.get(&host).map(|hub| hub.users) {
+                Some(0) => links.remove(&host),
+                Some(_) => {
+                    if let Some(hub) = links.get(&host) {
+                        hub.link.reconnect_now();
+                    }
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some(hub) = idle {
+            let core = self.clone();
+            tauri::async_runtime::spawn(async move {
+                hub.link.shutdown().await;
+                let _ = core.app.emit(
+                    EV_LINK,
+                    LinkEvent {
+                        host: host.to_string(),
+                        state: LinkState::Stopped,
+                    },
+                );
+            });
+        }
+    }
+
     pub async fn session(
         self: &Arc<Self>,
         host: Id,
         wait: Duration,
     ) -> CmdResult<(Lease, Arc<citadel_ssh::Session>)> {
+        // A locked vault opens no new shells, file sessions or commands on live connections.
+        // Running terminals and tunnels keep going.
+        if !self.vault.is_unlocked() {
+            return Err(VaultError::Locked.into());
+        }
         let handle = self.acquire(host);
         let lease = Lease {
             core: self.clone(),
@@ -364,10 +405,18 @@ impl Core {
             .collect()
     }
 
+    /// Called on unlock: retries links waiting to redial, and links that gave up only because
+    /// the vault was locked when they tried. Other failures (rejected host key, bad credentials)
+    /// still wait for the user.
     pub fn retry_waiting(&self) {
+        let locked = credential_error(&AppError::Vault(VaultError::Locked)).to_string();
         for hub in lock(&self.links).values() {
-            let waiting = matches!(*hub.link.state().borrow(), LinkState::Backoff { .. });
-            if waiting {
+            let retry = match &*hub.link.state().borrow() {
+                LinkState::Backoff { .. } => true,
+                LinkState::Failed { error, .. } => *error == locked,
+                _ => false,
+            };
+            if retry {
                 hub.link.reconnect_now();
             }
         }

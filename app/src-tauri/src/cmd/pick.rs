@@ -47,6 +47,17 @@ fn local(p: FilePath) -> Option<PathBuf> {
     p.into_path().ok()
 }
 
+/// Android's picker hands back content:// URIs, which these file grants cannot hold yet. Say so
+/// instead of returning nothing, which looked exactly like the user cancelling.
+fn supported() -> CmdResult<()> {
+    if cfg!(target_os = "android") {
+        return Err(AppError::invalid(
+            "choosing files on the device is not supported on Android yet",
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn pick_open(
     app: AppHandle,
@@ -55,6 +66,7 @@ pub async fn pick_open(
     filters: Vec<Filter>,
     multiple: bool,
 ) -> CmdResult<Vec<Picked>> {
+    supported()?;
     let d = builder(&app, &title, &filters)?;
     let (tx, rx) = oneshot::channel::<Vec<PathBuf>>();
     if multiple {
@@ -88,6 +100,7 @@ pub async fn pick_save(
     default_name: String,
     filters: Vec<Filter>,
 ) -> CmdResult<Option<Picked>> {
+    supported()?;
     let name: String = default_name
         .chars()
         .filter(|c| !c.is_control() && !matches!(c, '/' | '\\'))

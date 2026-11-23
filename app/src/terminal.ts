@@ -120,6 +120,11 @@ const REPORT =
 const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g;
 const REC_LIMIT = 32 << 20;
 const ANDROID = /Android/i.test(navigator.userAgent);
+
+/** A link's real address, cut to a length a toast can show; the start (scheme and host) is what tells a real link from a disguised one. */
+function shortLink(uri: string): string {
+  return uri.length > 120 ? `${uri.slice(0, 119)}…` : uri;
+}
 let keepQueued = false;
 let keepLast = "";
 
@@ -187,12 +192,16 @@ if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
   });
 }
 
-export function liveTerminals(): { key: string; title: string; host: string }[] {
-  return [...live.values()].map(({ key, label, host }) => ({ key, title: label, host }));
+export function liveTerminals(): { key: string; title: string; host: string; connected: boolean }[] {
+  return [...live.values()].map((p) => ({ key: p.key, title: p.label, host: p.host, connected: p.connected() }));
 }
 
-export function sendText(key: string, text: string): void {
-  live.get(key)?.send(text);
+/** Sends text to a terminal's shell. False when the terminal is gone or not connected, so nothing was sent. */
+export function sendText(key: string, text: string): boolean {
+  const pane = live.get(key);
+  if (!pane?.connected()) return false;
+  pane.send(text);
+  return true;
 }
 
 export function lastTerminal(): { key: string; label: string } | null {
@@ -240,7 +249,7 @@ function createPane(host: Id, changed: () => void): Pane {
     allowProposedApi: true,
     linkHandler: {
       activate: (ev, uri) => {
-        if (ev.ctrlKey || ev.metaKey) void copyText(uri, "Link copied to clipboard");
+        if (ev.ctrlKey || ev.metaKey) void copyText(uri, `Copied link: ${shortLink(uri)}`);
       },
     },
     allowTransparency: false,
@@ -265,7 +274,7 @@ function createPane(host: Id, changed: () => void): Pane {
   term.unicode.activeVersion = "11";
   term.loadAddon(
     new WebLinksAddon((ev, uri) => {
-      if (ev.metaKey || ev.ctrlKey) void copyText(uri, "Link copied to clipboard");
+      if (ev.metaKey || ev.ctrlKey) void copyText(uri, `Copied link: ${shortLink(uri)}`);
     }),
   );
 
@@ -502,7 +511,7 @@ function createPane(host: Id, changed: () => void): Pane {
           onClick: () =>
             void import("./views/hosts").then(({ hostForm }) => {
               const cur = hostById(host);
-              if (cur) hostForm(cur);
+              if (cur) hostForm(cur, { onSaved: () => void retryLink() });
             }),
         }),
       );
@@ -660,7 +669,7 @@ function createPane(host: Id, changed: () => void): Pane {
     } catch (e) {
       if (mine !== attempt) return;
       pid = null;
-      if (errCode(e) === "not_ready" && !disposed) {
+      if ((errCode(e) === "not_ready" || errCode(e) === "locked") && !disposed) {
         waitForLink(e);
         waitTimer = setTimeout(() => void connect(), 3000);
         return;
@@ -781,8 +790,8 @@ function createPane(host: Id, changed: () => void): Pane {
     let list: Listener[];
     try {
       list = await api.ports(host);
-    } catch {
-      stopPortWatch();
+    } catch (e) {
+      if (errCode(e) !== "locked") stopPortWatch();
       return;
     }
     const seen = new Set(list.map((l) => l.port));
@@ -980,7 +989,15 @@ function createPane(host: Id, changed: () => void): Pane {
   };
 
   term.onData((raw) => {
-    const d = pasting ? raw : applyLatch(raw);
+    // Text an Android keyboard inserts from its clipboard bar arrives as typing, not as a paste
+    // event. Several lines at once get the same checks as a paste instead of running unseen.
+    if (!pasting && raw.length > 1 && /[\r\n]/.test(raw) && !raw.startsWith("\x1b")) {
+      void pasteGuard(raw);
+      return;
+    }
+    // Reports the terminal sends by itself (focus, mouse, cursor position) are not keys the user
+    // pressed, so they must not use up an armed on-screen Ctrl or Alt.
+    const d = pasting || REPORT.test(raw) ? raw : applyLatch(raw);
     wakeCursor();
     sendString(d);
     if (!pasting && broadcast.has(key) && !REPORT.test(d)) {

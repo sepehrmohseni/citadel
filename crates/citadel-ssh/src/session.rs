@@ -418,7 +418,8 @@ impl Session {
                 route.prompter.clone(),
             ),
         )
-        .await?;
+        .await
+        .map_err(|e| auth_failure(e, &hop.user, &hop.host))?;
         if let (Some(slot), Some(used), Credential::Auto { .. }) = (&slot, &used, &hop.credential) {
             slot.settle(used);
         }
@@ -592,5 +593,19 @@ impl Session {
             .handle
             .cancel_tcpip_forward(bind_addr, u32::from(bind_port))
             .await?)
+    }
+}
+
+/// Once credentials have been offered, a failure must not be retried automatically: every redial
+/// would offer them again, which trips the server's MaxAuthTries and tools such as fail2ban, and
+/// re-raises agent confirmation prompts the user already declined. Timeouts stay retryable.
+fn auth_failure(e: TransportError, user: &str, host: &str) -> TransportError {
+    if e.is_permanent() || matches!(e, TransportError::Timeout { .. }) {
+        return e;
+    }
+    TransportError::AuthFailed {
+        user: user.to_owned(),
+        host: host.to_owned(),
+        detail: e.to_string(),
     }
 }

@@ -186,12 +186,14 @@ pub fn audit(
         }
     }
     for s in targets {
+        let plain = |u: &str| {
+            let u = u.trim_start().to_ascii_lowercase();
+            u.starts_with("http://") || u.starts_with("git://")
+        };
         let insecure = match &s.backend {
-            SyncBackend::S3 { endpoint, .. } => endpoint.starts_with("http://"),
-            SyncBackend::WebDav { url, .. } => url.starts_with("http://"),
-            SyncBackend::Git { remote, .. } => {
-                remote.starts_with("http://") || remote.starts_with("git://")
-            }
+            SyncBackend::S3 { endpoint, .. } => plain(endpoint),
+            SyncBackend::WebDav { url, .. } => plain(url),
+            SyncBackend::Git { remote, .. } => plain(remote),
         };
         if insecure {
             out.push(finding(

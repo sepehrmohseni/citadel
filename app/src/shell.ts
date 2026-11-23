@@ -261,6 +261,7 @@ function renderTabs(): void {
         draggable: "true",
         role: "tab",
         tabindex: 0,
+        "aria-selected": t.key === activeTab ? "true" : "false",
         title: `${t.title}${i < 9 && bindings(`tab.${i + 1}`)[0] ? ` (${pretty(bindings(`tab.${i + 1}`)[0] ?? "").join(" ")})` : ""}`,
         onMousedown: (e: MouseEvent) => {
           if (e.button === 1) {
@@ -269,6 +270,12 @@ function renderTabs(): void {
           }
         },
         onClick: () => focusTab(t.key),
+        onKeydown: (e: KeyboardEvent) => {
+          if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+            e.preventDefault();
+            focusTab(t.key);
+          }
+        },
         onDragstart: () => {
           dragKey = t.key;
         },

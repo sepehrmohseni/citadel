@@ -106,10 +106,13 @@ async fn one(
     });
     let deadline = tokio::time::Instant::now() + limit;
     let run = async {
+        // `biased` polls the cancel branch first, so a run cancelled before this host's turn never
+        // connects or starts the command, even when a session is already up.
         let (_lease, sess) = tokio::select! {
-            r = core.session(host, CONNECT_WAIT) => r?,
-            () = tokio::time::sleep_until(deadline) => return Ok(Outcome::Halted(Halt::TimedOut, None)),
+            biased;
             () = halted(&mut stop) => return Ok(Outcome::Halted(Halt::Cancelled, None)),
+            () = tokio::time::sleep_until(deadline) => return Ok(Outcome::Halted(Halt::TimedOut, None)),
+            r = core.session(host, CONNECT_WAIT) => r?,
         };
         let mut stream = sess.exec_stream(&command).await?;
         let mut sent = 0usize;
@@ -117,9 +120,10 @@ async fn one(
         let mut cut = false;
         loop {
             let step = tokio::select! {
-                ev = stream.next() => Step::Event(ev),
-                () = tokio::time::sleep_until(deadline) => Step::Halt(Halt::TimedOut),
+                biased;
                 () = halted(&mut stop) => Step::Halt(Halt::Cancelled),
+                () = tokio::time::sleep_until(deadline) => Step::Halt(Halt::TimedOut),
+                ev = stream.next() => Step::Event(ev),
             };
             let ev = match step {
                 Step::Halt(why) => {

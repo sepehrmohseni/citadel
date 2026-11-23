@@ -15,6 +15,8 @@ use crate::{Result, Session};
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 const DEFAULT_WAIT: Duration = Duration::from_secs(20);
 const SOCKS_HANDSHAKE: Duration = Duration::from_secs(10);
+const REMOTE_RETRY_FIRST: Duration = Duration::from_secs(2);
+const REMOTE_RETRY_MAX: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ForwardSpec {
@@ -309,6 +311,8 @@ async fn remote_loop(
 ) {
     let mut sessions = link.sessions();
     let mut active: Option<Registered> = None;
+    let mut delay = REMOTE_RETRY_FIRST;
+    let mut retry_in: Option<Duration> = None;
     loop {
         let current = sessions
             .borrow_and_update()
@@ -334,11 +338,17 @@ async fn remote_loop(
                             bind: remote.bind.clone(),
                             port,
                         });
+                        delay = REMOTE_RETRY_FIRST;
                     }
                     Err(e) => {
                         state.send_replace(TunnelState::Failed {
                             error: e.to_string(),
                         });
+                        // After a quick reconnect the server can still hold the port for the
+                        // session that just dropped: try again on this session after a pause
+                        // instead of waiting for the next drop.
+                        retry_in = Some(delay);
+                        delay = delay.saturating_mul(2).min(REMOTE_RETRY_MAX);
                     }
                 }
             }
@@ -350,9 +360,20 @@ async fn remote_loop(
                 });
             }
         }
-        if sessions.changed().await.is_err() {
-            state.send_replace(TunnelState::Stopped);
-            return;
+        let changed = match retry_in.take() {
+            Some(wait) => tokio::select! {
+                r = sessions.changed() => Some(r),
+                () = tokio::time::sleep(wait) => None,
+            },
+            None => Some(sessions.changed().await),
+        };
+        match changed {
+            Some(Err(_)) => {
+                state.send_replace(TunnelState::Stopped);
+                return;
+            }
+            Some(Ok(())) => delay = REMOTE_RETRY_FIRST,
+            None => {}
         }
     }
 }

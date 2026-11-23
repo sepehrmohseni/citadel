@@ -46,7 +46,7 @@ fn expand(
         )));
     }
     let h = vault
-        .get::<HostProfile>(id)?
+        .peek::<HostProfile>(id)?
         .ok_or(AppError::NotFound("host"))?;
     for jid in h.jump.clone() {
         expand(vault, jid, seen, out)?;
@@ -66,7 +66,7 @@ fn credential(core: &Arc<Core>, host: &HostProfile) -> CmdResult<Credential> {
         Auth::Identity(kid) => {
             let key = core
                 .vault
-                .get::<IdentityKey>(*kid)?
+                .peek::<IdentityKey>(*kid)?
                 .ok_or(AppError::NotFound("identity"))?;
             match &key.material {
                 KeyMaterial::Embedded {
@@ -175,7 +175,7 @@ enum Trust {
 
 fn assess(core: &Core, host: &str, port: u16, key: &PublicKey) -> citadel_vault::Result<Trust> {
     let (alg, blob) = key_parts(key);
-    let stored = core.vault.list::<KnownHost>()?;
+    let stored = core.vault.peek_all::<KnownHost>()?;
     let mut previous = None;
     for k in stored.iter().filter(|k| k.host == host && k.port == port) {
         if k.algorithm == alg && k.key == blob {

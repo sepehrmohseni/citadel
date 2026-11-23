@@ -123,6 +123,9 @@ pub async fn tunnel_delete(state: State<'_, AppState>, id: String) -> CmdResult<
     halt(&state.0, id);
     let vault = state.0.vault.clone();
     blocking(move || {
+        vault
+            .get::<TunnelSpec>(id)?
+            .ok_or(AppError::NotFound("tunnel"))?;
         vault.remove(id)?;
         Ok(())
     })

@@ -347,9 +347,20 @@ pub async fn vault_import(
         }
         let blob = std::fs::read(&path)?;
         let bundle = Bundle::open(&blob, &pw)?;
-        let (entries, neutralized) = quarantine(bundle.entries);
+        let (mut entries, neutralized) = quarantine(bundle.entries);
         let report = if replace {
-            vault.replace(&entries)?
+            // An imported bundle never carries trusted host keys or sync targets, so keep this
+            // device's own: replacing them with nothing would delete them on every synced device.
+            let local: Vec<Entry> = vault
+                .entries()?
+                .into_iter()
+                .filter(|e| matches!(e, Entry::KnownHost(_) | Entry::SyncTarget(_)))
+                .collect();
+            let kept = local.len();
+            entries.extend(local);
+            let mut report = vault.replace(&entries)?;
+            report.added = report.added.saturating_sub(kept);
+            report
         } else {
             vault.merge(entries)?
         };

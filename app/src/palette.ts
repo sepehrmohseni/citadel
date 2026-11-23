@@ -71,7 +71,7 @@ function items(): Item[] {
           return;
         }
         const body = s.body.replace(/\r?\n/g, "\r");
-        sendText(term.key, body.endsWith("\r") ? body : `${body}\r`);
+        if (!sendText(term.key, body.endsWith("\r") ? body : `${body}\r`)) toast(`${term.label} is not connected, so the snippet was not sent`, "warn");
       },
     });
   }

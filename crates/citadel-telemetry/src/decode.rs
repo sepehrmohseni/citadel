@@ -37,13 +37,17 @@ pub(crate) struct Decoder {
 
 impl Decoder {
     pub fn push(&mut self, chunk: &[u8]) -> Vec<RawFrame> {
+        // Every newline already in `pending` was consumed by earlier pushes, so only the new bytes
+        // need scanning; rescanning from 0 let a server feeding one byte at a time burn CPU.
+        let mut from = self.pending.len();
         self.pending.extend_from_slice(chunk);
         let mut out = Vec::new();
         let mut start = 0;
-        while let Some(pos) = self.pending[start..].iter().position(|&b| b == b'\n') {
-            let end = start + pos;
+        while let Some(pos) = self.pending[from..].iter().position(|&b| b == b'\n') {
+            let end = from + pos;
             let line = String::from_utf8_lossy(&self.pending[start..end]).into_owned();
             start = end + 1;
+            from = start;
             if let Some(frame) = self.line(line.trim_end_matches('\r')) {
                 out.push(frame);
             }

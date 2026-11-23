@@ -55,7 +55,8 @@ function sparkline(values: number[]): SVGSVGElement {
   return svg;
 }
 
-export function hostForm(existing?: Host, opts: { connect?: boolean } = {}): void {
+/** `onSaved` replaces opening a new terminal after "Save and connect", for a caller that reconnects its own pane. */
+export function hostForm(existing?: Host, opts: { connect?: boolean; onSaved?: () => void } = {}): void {
   const isEdit = Boolean(existing);
   const label = input({ value: existing?.label ?? "", placeholder: "prod-db-1" });
   const hostname = input({ value: existing?.hostname ?? "", placeholder: "10.0.4.12 or db.internal", class: "input mono" });
@@ -245,7 +246,9 @@ export function hostForm(existing?: Host, opts: { connect?: boolean } = {}): voi
     const saved = await api.hostSave(collect());
     await refreshHosts();
     toast(isEdit ? "Host updated" : "Host saved", "ok", 2000);
-    if (connect) openTerminal(saved.id);
+    if (!connect) return;
+    if (opts.onSaved) opts.onSaved();
+    else openTerminal(saved.id);
   };
 
   modal({

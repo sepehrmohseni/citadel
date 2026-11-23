@@ -112,7 +112,7 @@ function changePasswordModal(): void {
       field("Current password", cur),
       field("New password", h("div", { class: "stack", style: { gap: "8px" } }, next, strength(next)), "At least 8 characters. A passphrase of several words is easier to type and harder to guess."),
       field("Confirm new password", again),
-      h("div", { class: "note" }, icon("shield", 15), h("span", null, "Only the wrapped data key is re-encrypted; records are untouched. Devices that sync this vault adopt the new password on their next sync.")),
+      h("div", { class: "note" }, icon("shield", 15), h("span", null, "Every record is re-encrypted under a new key. Other devices that sync this vault ask for the new password on their next sync. The first sync on this device asks once for your previous password, to read the copy saved before the change.")),
     ),
     actions: [
       { label: "Cancel", kind: "ghost", run: () => undefined },
@@ -291,7 +291,7 @@ function restoreModal(b: BackupInfo, done: () => void): void {
             replace = v === "replace";
           },
         ),
-        "Merge brings back missing records and keeps newer edits. Replace makes the vault identical to the backup.",
+        "Merge adds records the vault does not have and keeps newer edits; records deleted since the backup stay deleted. Replace makes the vault identical to the backup.",
       ),
     ),
     actions: [
@@ -1001,12 +1001,12 @@ async function runSync(t: SyncTarget, button: HTMLButtonElement): Promise<void> 
       if (errCode(e) !== "needs_password") throw e;
       const pw = await askText("Remote vault password", "Password of the vault stored on this target", {
         secret: true,
-        hint: "The remote blob was created by another vault. Joining it re-encrypts this vault under the remote key; afterwards this vault unlocks with the remote password.",
-        confirm: "Join",
+        hint: "If you changed the master password on this device, enter your previous password: the stored copy is read with it and saved again under your new one. Otherwise the stored copy belongs to another vault, and joining it re-encrypts this vault under that vault's key, so afterwards this vault unlocks with that password.",
+        confirm: "Continue",
       });
       if (!pw) return;
       report = await api.syncRun(t.id, pw);
-      toast("Joined the remote vault. From now on, unlock with the remote vault's password.", "warn", 9000);
+      if (report.pulled?.rekeyed) toast("Joined the remote vault. From now on, unlock with the remote vault's password.", "warn", 9000);
     }
     await refreshAll();
     if (report.pulled?.header_adopted && !report.pulled.rekeyed) {

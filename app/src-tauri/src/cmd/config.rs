@@ -68,10 +68,23 @@ pub async fn sshconfig_hosts(state: State<'_, AppState>) -> CmdResult<Vec<Config
     .await
 }
 
+const MAX_KEY_FILE: u64 = 1 << 20;
+
 fn identity_for(vault: &Vault, files: &[String], summary: &mut ImportSummary) -> CmdResult<Auth> {
     let known: Vec<IdentityKey> = vault.list::<IdentityKey>()?;
     for f in files {
         let path = expand(f);
+        // Opening a network path on Windows makes an SMB connection that can leak credentials.
+        if cfg!(windows) && path.to_string_lossy().starts_with(r"\\") {
+            continue;
+        }
+        // Only regular files of key size: a FIFO would hang the import and /dev/zero would
+        // fill memory.
+        let regular =
+            std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= MAX_KEY_FILE);
+        if !regular {
+            continue;
+        }
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
         };
@@ -233,7 +246,15 @@ fn export_one(vault: &Vault, cfg: &mut SshConfig, id: Id, depth: usize) -> CmdRe
     let mut h = vault
         .get::<HostProfile>(id)?
         .ok_or(AppError::NotFound("host"))?;
-    let alias = h.ssh_alias.clone().unwrap_or_else(|| slug(&h.label));
+    let alias = h.ssh_alias.clone().unwrap_or_else(|| {
+        // An alias made up from the label must not look like a server name it does not point to.
+        let s = slug(&h.label);
+        if s.contains('.') && !s.eq_ignore_ascii_case(&h.hostname) {
+            s.replace('.', "-")
+        } else {
+            s
+        }
+    });
     let unsafe_field =
         |v: &str| v.is_empty() || v.chars().any(|c| c.is_control() || c.is_whitespace());
     if !plain_alias(&alias) || unsafe_field(&h.hostname) || unsafe_field(&h.user) {
@@ -248,21 +269,24 @@ fn export_one(vault: &Vault, cfg: &mut SshConfig, id: Id, depth: usize) -> CmdRe
     }
     let mut entry = cfg.host(&alias);
     let existing = cfg.aliases().iter().any(|a| a.eq_ignore_ascii_case(&alias));
-    if existing {
-        if entry
-            .hostname
-            .as_deref()
-            .is_some_and(|hn| !hn.eq_ignore_ascii_case(&h.hostname))
-        {
-            return Err(AppError::invalid(format!(
-                "~/.ssh/config already has Host {alias} for a different server; rename the alias in Citadel or edit ~/.ssh/config yourself"
-            )));
-        }
-        if h.agent_forward && entry.forward_agent != Some(true) {
-            return Err(AppError::invalid(format!(
-                "Citadel will not turn on agent forwarding for the existing ~/.ssh/config host {alias}; enable it there yourself"
-            )));
-        }
+    // Where `ssh <alias>` goes today: its HostName, or the alias itself when none is set.
+    let resolves_to = entry.hostname.clone().unwrap_or_else(|| alias.clone());
+    let redirects = !resolves_to.eq_ignore_ascii_case(&h.hostname);
+    if existing && redirects {
+        return Err(AppError::invalid(format!(
+            "~/.ssh/config already has Host {alias} for a different server; rename the alias in Citadel or edit ~/.ssh/config yourself"
+        )));
+    }
+    if redirects && alias.contains('.') {
+        return Err(AppError::invalid(format!(
+            "the alias {alias} looks like a real server name, and writing it would send `ssh {alias}` to {}; choose an alias without dots",
+            h.hostname
+        )));
+    }
+    if existing && h.agent_forward && entry.forward_agent != Some(true) {
+        return Err(AppError::invalid(format!(
+            "Citadel will not turn on agent forwarding for the existing ~/.ssh/config host {alias}; enable it there yourself"
+        )));
     }
     entry.alias.clone_from(&alias);
     entry.hostname = Some(h.hostname.clone());
@@ -270,7 +294,7 @@ fn export_one(vault: &Vault, cfg: &mut SshConfig, id: Id, depth: usize) -> CmdRe
     entry.port = (h.port != 22).then_some(h.port);
     entry.proxy_jump = jumps;
     entry.forward_agent = h.agent_forward.then_some(true);
-    cfg.upsert(&entry);
+    cfg.upsert_managed(&entry);
     if h.ssh_alias.as_deref() != Some(alias.as_str()) {
         h.ssh_alias = Some(alias.clone());
         vault.put(&mut h)?;
@@ -343,5 +367,30 @@ mod tests {
         let fresh = profile(&v, "db-1", "10.0.4.12", true);
         export_one(&v, &mut cfg, fresh, 0).unwrap();
         assert!(cfg.render().contains("Host db-1"));
+    }
+
+    #[test]
+    fn export_never_redirects_a_name_the_config_resolves_without_hostname() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = vault(dir.path());
+        let mut cfg = SshConfig::parse("Host github.com\n  IdentityFile ~/.ssh/gh\n");
+        let hijack = profile(&v, "github.com", "evil.example", false);
+        assert!(export_one(&v, &mut cfg, hijack, 0).is_err());
+        let unknown = profile(&v, "gitlab.com", "evil.example", false);
+        assert!(export_one(&v, &mut cfg, unknown, 0).is_err());
+        assert!(!cfg.render().contains("evil.example"));
+    }
+
+    #[test]
+    fn export_does_not_copy_inherited_directives_into_the_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let v = vault(dir.path());
+        let mut cfg = SshConfig::parse("Host *\n  IdentityFile ~/.ssh/id_ed25519\n");
+        let db = profile(&v, "db-1", "10.0.4.12", false);
+        export_one(&v, &mut cfg, db, 0).unwrap();
+        export_one(&v, &mut cfg, db, 0).unwrap();
+        let text = cfg.render();
+        assert!(text.contains("Host db-1"));
+        assert_eq!(text.matches("IdentityFile").count(), 1);
     }
 }

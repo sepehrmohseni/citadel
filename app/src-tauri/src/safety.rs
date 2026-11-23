@@ -32,10 +32,18 @@ fn private(_path: &Path, _mode: u32) -> io::Result<()> {
     Ok(())
 }
 
+/// Writes `body` to a new private file at `path`, which callers then rename into place. Whatever
+/// is already at that name is removed first and the file is created exclusively, so a file or
+/// symlink someone else planted there (in a shared folder, say) is never written through.
 pub fn write_private(path: &Path, body: &[u8]) -> io::Result<()> {
     use std::io::Write;
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let mut opts = fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;

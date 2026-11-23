@@ -127,15 +127,48 @@ fn build_host(vault: &Vault, input: HostInput) -> CmdResult<HostProfile> {
     Ok(host)
 }
 
+/// Whether a saved edit changes how Citadel connects to the host.
+fn route_changed(old: &HostProfile, new: &HostProfile) -> bool {
+    let auth = match (&old.auth, &new.auth) {
+        (Auth::Identity(a), Auth::Identity(b)) => a != b,
+        (Auth::Agent { fingerprint: a }, Auth::Agent { fingerprint: b }) => a != b,
+        (Auth::Password(a), Auth::Password(b)) => {
+            citadel_vault::ExposeSecret::expose_secret(a)
+                != citadel_vault::ExposeSecret::expose_secret(b)
+        }
+        (Auth::Interactive, Auth::Interactive) => false,
+        _ => true,
+    };
+    auth || old.hostname != new.hostname
+        || old.port != new.port
+        || old.user != new.user
+        || old.jump != new.jump
+        || old.agent_forward != new.agent_forward
+        || old.legacy_crypto != new.legacy_crypto
+        || old.keepalive_secs != new.keepalive_secs
+}
+
 #[tauri::command]
 pub async fn host_save(state: State<'_, AppState>, input: HostInput) -> CmdResult<HostView> {
-    let vault = state.0.vault.clone();
-    blocking(move || {
+    let core = state.0.clone();
+    let vault = core.vault.clone();
+    let (view, rerouted) = blocking(move || {
+        let before = match &input.id {
+            Some(raw) => vault.get::<HostProfile>(parse_id(raw)?)?,
+            None => None,
+        };
         let mut host = build_host(&vault, input)?;
         vault.put(&mut host)?;
-        Ok(HostView::from(&host))
+        let rerouted = before
+            .is_some_and(|old| route_changed(&old, &host))
+            .then_some(host.id);
+        Ok((HostView::from(&host), rerouted))
     })
-    .await
+    .await?;
+    if let Some(id) = rerouted {
+        core.reroute(id);
+    }
+    Ok(view)
 }
 
 #[tauri::command]
@@ -145,6 +178,9 @@ pub async fn host_delete(state: State<'_, AppState>, id: String) -> CmdResult<()
     let dead: Vec<Id> = {
         let vault = core.vault.clone();
         blocking(move || {
+            vault
+                .get::<HostProfile>(id)?
+                .ok_or(AppError::NotFound("host"))?;
             let mut dead = Vec::new();
             for t in vault.list::<TunnelSpec>()? {
                 if t.host == id {
@@ -356,6 +392,9 @@ pub async fn identity_delete(state: State<'_, AppState>, id: String) -> CmdResul
     let id = parse_id(&id)?;
     let vault = state.0.vault.clone();
     blocking(move || {
+        vault
+            .get::<IdentityKey>(id)?
+            .ok_or(AppError::NotFound("identity"))?;
         let users: Vec<String> = vault
             .list::<HostProfile>()?
             .into_iter()

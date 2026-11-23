@@ -273,7 +273,7 @@ impl From<&SyncTarget> for SyncTargetView {
                 branch,
                 path,
             } => SyncBackendView::Git {
-                remote: remote.clone(),
+                remote: hide_password(remote),
                 branch: branch.clone(),
                 path: path.clone(),
             },
@@ -331,4 +331,43 @@ pub enum PtyStatus {
     Exit { code: u32 },
     Signal { name: String },
     Closed,
+}
+
+/// Shows `https://user:token@host/repo` as `https://user:***@host/repo`, so a token written into a
+/// Git remote stays in the vault and never reaches the webview. Saving the shown value back keeps
+/// the stored remote.
+pub(crate) fn hide_password(remote: &str) -> String {
+    let Some((scheme, rest)) = remote.split_once("://") else {
+        return remote.to_owned();
+    };
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let Some((userinfo, host)) = authority.rsplit_once('@') else {
+        return remote.to_owned();
+    };
+    let Some((user, _)) = userinfo.split_once(':') else {
+        return remote.to_owned();
+    };
+    format!("{scheme}://{user}:***@{host}{path}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hide_password;
+
+    #[test]
+    fn git_remote_tokens_are_hidden() {
+        assert_eq!(
+            hide_password("https://me:ghp_secret@github.com/me/vault.git"),
+            "https://me:***@github.com/me/vault.git"
+        );
+        assert_eq!(
+            hide_password("https://me@github.com/me/vault.git"),
+            "https://me@github.com/me/vault.git"
+        );
+        assert_eq!(
+            hide_password("git@github.com:me/vault.git"),
+            "git@github.com:me/vault.git"
+        );
+        assert_eq!(hide_password("https://h/x"), "https://h/x");
+    }
 }

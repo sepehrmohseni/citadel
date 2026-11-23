@@ -66,7 +66,10 @@ async function runActive(s: Snippet): Promise<void> {
     return;
   }
   if (!seen && !(await confirmBox("Run snippet", `Run "${s.label}" on ${target.label}? That terminal is not on screen.`, { confirm: "Run" }))) return;
-  sendText(target.key, toPty(s.body));
+  if (!sendText(target.key, toPty(s.body))) {
+    toast(`${target.label} is not connected, so "${s.label}" was not sent`, "warn");
+    return;
+  }
   toast(`Sent "${s.label}" to ${target.label}`, "ok", 2200);
 }
 
@@ -77,14 +80,18 @@ function broadcastModal(s: Snippet): void {
     return;
   }
   const active = (visibleTerminal() ?? lastTerminal())?.key ?? null;
-  const boxes = terms.map((t) => ({ t, cb: h("input", { type: "checkbox", checked: t.key === active || terms.length === 1 }) as HTMLInputElement }));
+  const boxes = terms.map((t) => ({
+    t,
+    cb: h("input", { type: "checkbox", checked: t.connected && (t.key === active || terms.length === 1), disabled: !t.connected }) as HTMLInputElement,
+  }));
   const all = h("input", { type: "checkbox" }) as HTMLInputElement;
   const warn = h("div", { class: "alert" }, icon("warn", 15), h("span"));
   const count = () => boxes.filter((b) => b.cb.checked).length;
   const sync = () => {
     const n = count();
-    all.checked = n === boxes.length;
-    all.indeterminate = n > 0 && n < boxes.length;
+    const avail = boxes.filter((b) => b.t.connected).length;
+    all.checked = avail > 0 && n === avail;
+    all.indeterminate = n > 0 && n < avail;
     const hostsHit = new Set(boxes.filter((b) => b.cb.checked).map((b) => b.t.host)).size;
     const text = warn.lastElementChild;
     if (text) {
@@ -96,12 +103,18 @@ function broadcastModal(s: Snippet): void {
     warn.classList.toggle("danger", n > 1);
   };
   all.addEventListener("change", () => {
-    for (const b of boxes) b.cb.checked = all.checked;
+    for (const b of boxes) b.cb.checked = all.checked && b.t.connected;
     sync();
   });
   const rows = boxes.map(({ t, cb }) => {
     cb.addEventListener("change", sync);
-    return h("label", { class: "pick-row" }, cb, h("div", { class: "grow" }, h("div", { class: "title" }, t.title)), icon("terminal", 14));
+    return h(
+      "label",
+      { class: "pick-row" },
+      cb,
+      h("div", { class: "grow" }, h("div", { class: "title" }, t.title), !t.connected && h("div", { class: "muted" }, "not connected")),
+      icon("terminal", 14),
+    );
   });
   sync();
   modal({
@@ -126,8 +139,10 @@ function broadcastModal(s: Snippet): void {
             return false;
           }
           const text = toPty(s.body);
-          for (const b of targets) sendText(b.t.key, text);
-          toast(`Sent to ${targets.length} terminal${targets.length === 1 ? "" : "s"}`, "ok");
+          const sent = targets.filter((b) => sendText(b.t.key, text)).length;
+          const missed = targets.length - sent;
+          if (missed) toast(`Sent to ${sent} terminal${sent === 1 ? "" : "s"}; ${missed} had disconnected and got nothing`, "warn");
+          else toast(`Sent to ${sent} terminal${sent === 1 ? "" : "s"}`, "ok");
           return true;
         },
       },
