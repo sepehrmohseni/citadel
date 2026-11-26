@@ -165,8 +165,11 @@ The `SHA-256 digest` must be
 
 On phones the navigation moves to a bottom bar and terminals get a key row
 with Esc, Tab, Ctrl, Alt, arrows and common symbols. Ctrl and Alt apply to the
-next key typed on the on-screen keyboard, and while one of them is on a letter
-row offers one-tap combinations such as `Ctrl+C` or the tmux prefix `Ctrl+B`.
+next key typed on the phone's keyboard. Phone keyboards normally hold letters
+back until a word is finished; Citadel has them send every key the moment it
+is pressed (as Termux does), so `Ctrl+B` then `S` reaches tmux as typed. If a
+keyboard misbehaves, Settings › Terminal › Send each key at once turns this
+off.
 Connected sessions stay up in the background behind a notification; its
 Disconnect button closes them all. The global show/hide shortcut is a desktop
 feature and is not available on Android.

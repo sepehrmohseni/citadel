@@ -279,6 +279,7 @@ export interface Prefs {
   detect_ports: boolean;
   updates: "auto" | "notify" | "off";
   skip_version: string;
+  direct_keys: boolean;
 }
 
 /** How an update gets installed: by Citadel on restart, through the system password prompt, or by hand. */

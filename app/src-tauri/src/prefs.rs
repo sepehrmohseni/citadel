@@ -31,6 +31,9 @@ pub struct Prefs {
     pub updates: String,
     /// A version the user chose to skip; automatic checks stay quiet about it.
     pub skip_version: String,
+    /// Android: send every key to the terminal at once instead of letting the phone keyboard hold
+    /// letters back until a word is finished.
+    pub direct_keys: bool,
 }
 
 impl Default for Prefs {
@@ -57,6 +60,7 @@ impl Default for Prefs {
             detect_ports: true,
             updates: "auto".into(),
             skip_version: String::new(),
+            direct_keys: true,
         }
     }
 }

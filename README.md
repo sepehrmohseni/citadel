@@ -210,9 +210,9 @@ app, and anyone could extract that token from the download and misuse it.
 - Settings are chosen, not typed: installed monospace fonts are listed with a
   live sample, sizes use steppers, and limits use presets.
 - Android: a phone layout with a key row for Esc, Tab, Ctrl, Alt, arrows and
-  function keys. Ctrl and Alt work with the system keyboard, including
-  keyboards that hold a word until it is finished, and show a letter row for
-  one-tap combinations such as `Ctrl+C` or the tmux prefix. Sessions stay
+  function keys. Every key on the phone's own keyboard reaches the terminal the
+  moment it is pressed, as in Termux, so Ctrl or Alt followed by a letter works
+  as typed: `Ctrl+B` then `S` opens tmux's session list. Sessions stay
   connected in the background behind a notification with a Disconnect button.
 - Signed automatic updates and in-app bug reports; see [Updates](#updates) and
   [Reporting bugs](#reporting-bugs).

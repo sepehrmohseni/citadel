@@ -535,6 +535,13 @@ function terminalSection(): Section {
         row("Paste confirmation", "Ask before a paste that could run several commands.", pasteLimit),
         row("Reopen tabs", "Restore open terminals, split layouts and file browsers the next time Citadel starts.", toggle(p.restore_tabs, "", (v) => change({ restore_tabs: v }))),
         row("Detect new ports", "Offer to forward a port when a server starts listening on it, for example a dev server.", toggle(p.detect_ports, "", (v) => change({ detect_ports: v }))),
+        /Android/i.test(navigator.userAgent)
+          ? row(
+              "Send each key at once",
+              "Phone keyboards hold letters back until a word is finished, so Ctrl+B then S would reach tmux as Ctrl+B alone. Leave this on; turn it off only if your keyboard misbehaves.",
+              toggle(p.direct_keys, "", (v) => change({ direct_keys: v })),
+            )
+          : null,
         row("Telemetry interval", "How often host metrics refresh in the terminal side panel.", telemetry),
         row(
           "Renderer",

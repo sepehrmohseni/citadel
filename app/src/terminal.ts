@@ -7,6 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 
 import { Channel, api, errCode, errText, events, type Id, type Listener, type Prefs, type PtyStatus } from "./api";
+import { cloneKey, directKeys, type DirectKeys } from "./directkeys";
 import { bytes, h, icon, latchInput, terminalChord } from "./dom";
 import { bind, bindings, pretty } from "./keymap";
 import { DEFAULT_FONT, loadFont } from "./fonts";
@@ -844,22 +845,11 @@ function createPane(host: Id, changed: () => void): Pane {
   let composing = false;
   let composeStart = 0;
   const composed = () => (composing && term.textarea ? Math.max(0, term.textarea.value.length - composeStart) : 0);
-  const stripEl = h(
-    "div",
-    { class: "term-strip", role: "toolbar", "aria-label": "Keys for Ctrl and Alt", hidden: true },
-    [..."abcdefghijklmnopqrstuvwxyz\\]_ "].map((c) => {
-      const b = h("button", { class: "term-key", type: "button", tabindex: "-1" }, c === " " ? "␣" : c);
-      b.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        latch.skip = 0;
-        term.input(c, true);
-      });
-      return b;
-    }),
-  );
+  // On Android the phone keyboard types into a field that sends every key at once (see directkeys.ts).
+  let keys: DirectKeys | null = null;
+  let focusOutTimer: ReturnType<typeof setTimeout> | undefined;
   const syncLatch = () => {
     for (const el of latchEls) el.classList.toggle("on", el.dataset.key === "ctrl" ? latch.ctrl : latch.alt);
-    stripEl.hidden = !latch.ctrl && !latch.alt;
   };
   const applyLatch = (d: string): string => {
     if (!latch.ctrl && !latch.alt) return d;
@@ -893,7 +883,8 @@ function createPane(host: Id, changed: () => void): Pane {
       fnLayer = !fnLayer;
       renderKeys();
     } else if (out === "kbd") {
-      if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
+      const active = document.activeElement;
+      if (active && (active === term.textarea || active === keys?.el)) (active as HTMLElement).blur();
       else term.focus();
     } else {
       const seq = typeof out === "function" ? out() : out;
@@ -917,7 +908,7 @@ function createPane(host: Id, changed: () => void): Pane {
     );
   };
   renderKeys();
-  main.append(h("div", { class: "term-dock" }, stripEl, keysEl));
+  main.append(keysEl);
 
   const lines = (from: number, to: number) => {
     const b = term.buffer.active;
@@ -993,7 +984,44 @@ function createPane(host: Id, changed: () => void): Pane {
     });
   };
 
+  // Focus reports for full-screen programs (vim, tmux) follow the direct-keys field: xterm's own
+  // textarea only holds focus for a moment before handing it on, which would read as a blur.
+  const focusReport = (on: boolean) => {
+    if (on) {
+      if (focusOutTimer) {
+        clearTimeout(focusOutTimer);
+        focusOutTimer = undefined;
+        return;
+      }
+      if (term.modes.sendFocusMode) sendString("\x1b[I");
+      return;
+    }
+    focusOutTimer = setTimeout(() => {
+      focusOutTimer = undefined;
+      if (!disposed && term.modes.sendFocusMode) sendString("\x1b[O");
+    }, 150);
+  };
+
+  const syncDirectKeys = (want: boolean) => {
+    if (!ANDROID || !opened || !term.element) return;
+    if (want && !keys) {
+      keys = directKeys({
+        host: term.element,
+        send: (text) => term.input(text, true),
+        key: (e) => term.textarea?.dispatchEvent(cloneKey(e)),
+        focusChange: focusReport,
+      });
+      // Focus sits in the field, so xterm draws its cursor as unfocused; draw it as usual.
+      term.options.cursorInactiveStyle = term.options.cursorStyle ?? "bar";
+    } else if (!want && keys) {
+      keys.dispose();
+      keys = null;
+      term.options.cursorInactiveStyle = "outline";
+    }
+  };
+
   term.onData((raw) => {
+    if (keys && (raw === "\x1b[I" || raw === "\x1b[O")) return;
     // Text an Android keyboard inserts from its clipboard bar arrives as typing, not as a paste
     // event. Several lines at once get the same checks as a paste instead of running unseen.
     if (!pasting && raw.length > 1 && /[\r\n]/.test(raw) && !raw.startsWith("\x1b")) {
@@ -1082,6 +1110,8 @@ function createPane(host: Id, changed: () => void): Pane {
     term.options.cursorBlink = np.cursor_blink;
     wakeCursor();
     term.options.cursorStyle = np.cursor_style as "block" | "bar" | "underline";
+    if (keys) term.options.cursorInactiveStyle = term.options.cursorStyle;
+    syncDirectKeys(np.direct_keys);
     term.options.scrollback = np.scrollback;
     const t = themeFor(np.theme).theme;
     if (term.options.theme?.background !== t.background || term.options.theme?.foreground !== t.foreground) {
@@ -1118,6 +1148,9 @@ function createPane(host: Id, changed: () => void): Pane {
     term.textarea?.addEventListener("compositionend", () => {
       composing = false;
     });
+    // On Android, whatever focuses the terminal (a tap, the key bar) hands the keyboard to the field.
+    term.textarea?.addEventListener("focus", () => keys?.focus());
+    syncDirectKeys(prefs.get()?.direct_keys ?? true);
     wakeCursor();
     ro.observe(hostEl);
     refit();
@@ -1155,6 +1188,9 @@ function createPane(host: Id, changed: () => void): Pane {
     },
     refit,
     dispose: () => {
+      keys?.dispose();
+      keys = null;
+      if (focusOutTimer) clearTimeout(focusOutTimer);
       if (rec) void stopRec();
       broadcast.delete(key);
       bcastListeners.delete(renderBcast);

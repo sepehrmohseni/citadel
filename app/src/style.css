@@ -2494,23 +2494,22 @@ details.advanced[open] summary::before {
   background: var(--bg);
 }
 
-.term-dock {
-  position: relative;
-  flex: none;
-}
-
-.term-strip {
+/* The field Android keyboards type into (see directkeys.ts): focusable, but never seen. */
+.term-ime {
   position: absolute;
   left: 0;
-  right: 0;
-  bottom: 100%;
-  z-index: 6;
-  display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 4px;
-  padding: 5px 6px;
-  border-top: 1px solid var(--line);
-  background: var(--bg);
+  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  color: transparent;
+  caret-color: transparent;
+  background: transparent;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .term-key {

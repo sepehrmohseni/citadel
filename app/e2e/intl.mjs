@@ -129,6 +129,8 @@ try {
   });
 
   await check("remote shell receives a UTF-8 locale", async () => {
+    // The locale line comes after the stty line that setup waited for; wait for it too.
+    await app.waitFor(`window.__citadel.text(${JSON.stringify(term)}).includes("LC_CTYPE=")`, 8000, "locale output");
     const l = await lines();
     const ctype = l.find((s) => s.startsWith("LC_CTYPE="));
     if (!ctype || !/utf-?8/i.test(ctype)) throw new Error(`remote ${ctype ?? "LC_CTYPE unset"}`);
