@@ -24,6 +24,17 @@ USER="$(id -un)"
 export USER
 mkdir -p "$HOME"
 
+# Cargo never deletes old build outputs, so the target cache only grows: every change to the code,
+# the dependencies or the toolchain leaves the previous outputs behind. Start it afresh once it
+# passes CITADEL_CI_TARGET_GB (30 GB by default), so it cannot fill the disk.
+limit_gb="${CITADEL_CI_TARGET_GB:-30}"
+case "$limit_gb" in '' | *[!0-9]*) limit_gb=30 ;; esac
+used_kb="$(du -sk /cache/target 2>/dev/null | cut -f1)"
+if [ "${used_kb:-0}" -gt $((limit_gb * 1024 * 1024)) ]; then
+  echo "The build cache has grown past ${limit_gb} GB; starting it afresh." >&2
+  find /cache/target -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+fi
+
 # Work on a private copy. The checkout stays untouched, and host build outputs (target/,
 # node_modules/, dist/) belong to the host platform. tar keeps modification times, so cargo's
 # cache in the target volume stays valid between runs.

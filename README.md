@@ -338,7 +338,9 @@ tests and build, `cargo fmt`, `clippy -D warnings`, the workspace tests, the
 OpenSSH suite and the end-to-end scenarios under Xvfb) in a container, on any Linux or macOS machine with Docker, x86_64
 or arm64. Nothing else needs to be installed. The checkout is mounted read-only
 and copied inside the container, so the script never writes to it, and caches
-are kept in Docker volumes so later runs are quick. It uses half of the CPU
+are kept in Docker volumes so later runs are quick. The Rust build cache starts
+afresh once it passes 30 GB (`CITADEL_CI_TARGET_GB`), so it cannot fill the
+disk. It uses half of the CPU
 cores so the machine stays usable; set `CITADEL_CI_CPUS` to change that. On
 Linux the GPU (`/dev/dri`) is passed in so the end-to-end run renders with it
 rather than the CPU; `CITADEL_CI_GPU=off` renders in software, as CI does.

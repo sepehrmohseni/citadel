@@ -13,6 +13,8 @@
 # The checkout is mounted read-only and copied inside the container, so nothing is written to it.
 # Caches live in the Docker volumes citadel-ci-cargo, citadel-ci-target and citadel-ci-pnpm;
 # remove them with: docker volume rm citadel-ci-cargo citadel-ci-target citadel-ci-pnpm
+# Cargo never deletes old build outputs, so the target cache starts afresh once it passes
+# CITADEL_CI_TARGET_GB (30 GB by default).
 # The checks use half of the CPU cores by default, so the machine stays usable while they run;
 # set CITADEL_CI_CPUS to change that. On Linux the GPU (/dev/dri: Intel, AMD, or NVIDIA through
 # nouveau) is passed in so the end-to-end run renders with it instead of the CPU; set
@@ -64,6 +66,7 @@ fi
 exec docker run --rm ${tty[@]+"${tty[@]}"} ${gpu[@]+"${gpu[@]}"} \
   --cpus "$cpus" \
   --env "CARGO_BUILD_JOBS=$cpus" \
+  --env "CITADEL_CI_TARGET_GB=${CITADEL_CI_TARGET_GB:-30}" \
   --user "$(id -u):$(id -g)" \
   --volume "$root:/src:ro,z" \
   --volume citadel-ci-cargo:/cache/cargo \
