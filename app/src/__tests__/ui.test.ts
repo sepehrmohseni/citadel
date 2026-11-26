@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { h } from "../dom";
-import { field, segmented, toggle } from "../ui";
+import { actionToast, field, segmented, toggle } from "../ui";
 
 describe("field()", () => {
   it("labels single form controls", () => {
@@ -39,5 +39,22 @@ describe("toggle()", () => {
     cb.checked = true;
     cb.dispatchEvent(new Event("change"));
     expect(fn).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("actionToast()", () => {
+  it("puts the buttons on their own row under the message", () => {
+    const run = vi.fn();
+    actionToast("Citadel 9.9.9 is available.", [
+      { label: "download", run },
+      { label: "skip this version", run: vi.fn() },
+    ]);
+    const el = document.querySelector(".toast-action") as HTMLElement;
+    expect([...el.children].map((c) => c.className)).toEqual(["lvl", "ts", "msg", "btn small ghost toast-x", "toast-acts"]);
+    expect(el.querySelector(".msg")?.textContent).toBe("Citadel 9.9.9 is available.");
+    const buttons = [...el.querySelectorAll(".toast-acts button")];
+    expect(buttons.map((b) => b.textContent)).toEqual(["download", "skip this version"]);
+    (buttons[0] as HTMLButtonElement).click();
+    expect(run).toHaveBeenCalledOnce();
   });
 });

@@ -1161,11 +1161,13 @@ select.input {
 .toast .lvl {
   font-weight: 800;
   letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
 .toast .ts {
   color: var(--fg-3);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .toast-ok {
@@ -2767,13 +2769,28 @@ details.advanced[open] summary::before {
 }
 
 .toast-action {
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-  align-items: center;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  row-gap: 8px;
   max-width: 620px;
+  cursor: default;
 }
 
-.toast-action .grow {
-  flex: 1;
+.toast-action .msg {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.toast-action .toast-x {
+  align-self: start;
+  margin: -4px -8px 0 0;
+}
+
+.toast-acts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .toast-action .lvl {

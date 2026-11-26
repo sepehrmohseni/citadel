@@ -40,26 +40,32 @@ export function actionToast(message: string, actions: { label: string; run: () =
     el.classList.remove("in");
     setTimeout(() => el.remove(), 220);
   };
+  // The buttons get a row of their own under the message, so a phone-width toast never squeezes
+  // the message into a one-letter column.
   el.append(
     h("span", { class: "lvl" }, "NEW"),
     h("span", { class: "ts" }, ts),
-    h("span", { class: "grow" }, message),
-    ...actions.map((a) =>
-      h(
-        "button",
-        {
-          type: "button",
-          class: "btn small",
-          onClick: (e: MouseEvent) => {
-            e.stopPropagation();
-            kill();
-            a.run();
+    h("span", { class: "msg" }, message),
+    h("button", { type: "button", class: "btn small ghost toast-x", "aria-label": "Dismiss", onClick: kill }, "×"),
+    h(
+      "div",
+      { class: "toast-acts" },
+      ...actions.map((a) =>
+        h(
+          "button",
+          {
+            type: "button",
+            class: "btn small",
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation();
+              kill();
+              a.run();
+            },
           },
-        },
-        a.label,
+          a.label,
+        ),
       ),
     ),
-    h("button", { type: "button", class: "btn small ghost", "aria-label": "Dismiss", onClick: kill }, "×"),
   );
   toastHost.append(el);
   requestAnimationFrame(() => el.classList.add("in"));
